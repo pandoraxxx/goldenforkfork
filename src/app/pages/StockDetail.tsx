@@ -102,7 +102,7 @@ export function StockDetail() {
               onClick={() => setShowSubscriptionForm(!showSubscriptionForm)}
             >
               <Bell className="h-5 w-5" />
-              监��
+              监控
             </Button>
           </div>
         </div>
