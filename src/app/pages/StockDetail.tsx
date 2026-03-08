@@ -289,14 +289,6 @@ export function StockDetail() {
               <h3 className="text-lg font-semibold mb-4">估值指标</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-muted-foreground">市盈率 (P/E)</span>
-                  <span className="font-semibold">{stock.pe}</span>
-                </div>
-                <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-muted-foreground">市净率 (P/B)</span>
-                  <span className="font-semibold">{stock.pb}</span>
-                </div>
-                <div className="flex justify-between items-center pb-3 border-b">
                   <span className="text-muted-foreground">股息率</span>
                   <span className="font-semibold">{stock.dividendYield}%</span>
                 </div>

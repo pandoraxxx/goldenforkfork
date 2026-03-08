@@ -66,10 +66,6 @@ export function StockCard({ stock }: StockCardProps) {
           
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pt-2 border-t">
             <div>
-              <div>市盈率: {stock.pe}</div>
-              <div>市净率: {stock.pb}</div>
-            </div>
-            <div>
               <div>成交量: {(stock.volume / 1000000).toFixed(2)}M</div>
               <div>最近金叉: <span className="font-medium text-primary">{stock.lastGoldenCross ? formatGoldenCrossDate(stock.lastGoldenCross) : '暂无'}</span></div>
             </div>
