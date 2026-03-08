@@ -1,4 +1,4 @@
-import { Stock } from '../utils/mockData';
+import { Stock, formatGoldenCrossDate } from '../utils/mockData';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Link } from 'react-router';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -37,6 +37,7 @@ export function StockTable({ stocks }: StockTableProps) {
             <TableHead className="text-right">涨跌</TableHead>
             <TableHead className="text-right">涨跌幅</TableHead>
             <TableHead className="text-right hidden md:table-cell">成交量</TableHead>
+            <TableHead className="text-right">最近金叉</TableHead>
             <TableHead className="text-right hidden lg:table-cell">市盈率</TableHead>
             <TableHead className="text-right hidden lg:table-cell">市净率</TableHead>
           </TableRow>
@@ -47,7 +48,7 @@ export function StockTable({ stocks }: StockTableProps) {
             const isFav = favorites.has(stock.code);
             
             return (
-              <TableRow key={stock.id} className="cursor-pointer hover:bg-gray-50">
+              <TableRow key={stock.id} className="cursor-pointer hover:bg-muted/50">
                 <TableCell>
                   <Button
                     variant="ghost"
@@ -60,7 +61,7 @@ export function StockTable({ stocks }: StockTableProps) {
                     }}
                   >
                     <Star 
-                      className={`h-4 w-4 ${isFav ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400'}`} 
+                      className={`h-4 w-4 ${isFav ? 'fill-primary text-primary' : 'text-muted-foreground'}`} 
                     />
                   </Button>
                 </TableCell>
@@ -72,7 +73,7 @@ export function StockTable({ stocks }: StockTableProps) {
                 <TableCell>
                   <Link to={`/stock/${stock.code}`} className="hover:underline">
                     <div className="max-w-[200px] truncate">{stock.nameCn}</div>
-                    <div className="text-xs text-gray-500">{stock.sector}</div>
+                    <div className="text-xs text-muted-foreground/80">{stock.sector}</div>
                   </Link>
                 </TableCell>
                 <TableCell className="text-right font-semibold">
@@ -94,6 +95,11 @@ export function StockTable({ stocks }: StockTableProps) {
                 <TableCell className="text-right hidden md:table-cell">
                   <Link to={`/stock/${stock.code}`}>
                     {(stock.volume / 1000000).toFixed(2)}M
+                  </Link>
+                </TableCell>
+                <TableCell className="text-right">
+                  <Link to={`/stock/${stock.code}`} className="font-medium text-primary">
+                    {stock.lastGoldenCross ? formatGoldenCrossDate(stock.lastGoldenCross) : '-'}
                   </Link>
                 </TableCell>
                 <TableCell className="text-right hidden lg:table-cell">

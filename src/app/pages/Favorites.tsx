@@ -43,9 +43,9 @@ export function Favorites() {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Card className="p-12 text-center max-w-md">
-          <Star className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+          <Star className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-xl font-semibold mb-2">暂无自选股</h3>
-          <p className="text-gray-600 mb-6">
+          <p className="text-muted-foreground mb-6">
             在股票列表中点击星标图标添加自选股
           </p>
           <Button onClick={() => window.location.href = '/'}>
@@ -60,10 +60,10 @@ export function Favorites() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Star className="h-8 w-8 text-yellow-500 fill-yellow-500" />
+          <Star className="h-8 w-8 text-primary fill-primary" />
           <div>
             <h2 className="text-3xl font-bold">我的自选</h2>
-            <p className="text-sm text-gray-600 mt-1">共 {favoriteStocks.length} 只股票</p>
+            <p className="text-sm text-muted-foreground mt-1">共 {favoriteStocks.length} 只股票</p>
           </div>
         </div>
         

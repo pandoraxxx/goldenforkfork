@@ -15,7 +15,7 @@ export function Home() {
   const [stocks] = useState<Stock[]>(() => generateStocks(3000));
   const [searchQuery, setSearchQuery] = useState('');
   const [sectorFilter, setSectorFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'code' | 'change' | 'volume' | 'marketCap'>('code');
+  const [sortBy, setSortBy] = useState<'code' | 'change' | 'volume' | 'marketCap' | 'lastGoldenCross'>('volume');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState('all');
@@ -75,6 +75,12 @@ export function Home() {
           return b.volume - a.volume;
         case 'marketCap':
           return b.marketCap - a.marketCap;
+        case 'lastGoldenCross': {
+          // 有金叉的排前面，按金叉日期从近到远；无金叉的排最后
+          const aDate = a.lastGoldenCross ? new Date(a.lastGoldenCross.date).getTime() : 0;
+          const bDate = b.lastGoldenCross ? new Date(b.lastGoldenCross.date).getTime() : 0;
+          return bDate - aDate;
+        }
         default:
           return a.code.localeCompare(b.code);
       }
@@ -111,16 +117,16 @@ export function Home() {
         <h2 className="text-3xl font-bold mb-4">港股市场</h2>
         <div className="grid grid-cols-3 gap-4">
           <Card className="p-4">
-            <div className="text-sm text-gray-600 mb-1">上涨</div>
+            <div className="text-sm text-muted-foreground mb-1">上涨</div>
             <div className="text-2xl font-bold text-green-600">{stats.rising}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-600 mb-1">下跌</div>
+            <div className="text-sm text-muted-foreground mb-1">下跌</div>
             <div className="text-2xl font-bold text-red-600">{stats.falling}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-600 mb-1">平盘</div>
-            <div className="text-2xl font-bold text-gray-600">{stats.unchanged}</div>
+            <div className="text-sm text-muted-foreground mb-1">平盘</div>
+            <div className="text-2xl font-bold text-muted-foreground">{stats.unchanged}</div>
           </Card>
         </div>
       </div>
@@ -137,7 +143,7 @@ export function Home() {
           {/* 搜索和筛选 */}
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-5 w-5" />
               <Input
                 type="text"
                 placeholder="搜索股票代码或名称..."
@@ -168,6 +174,7 @@ export function Home() {
                 <SelectItem value="change">按涨跌幅</SelectItem>
                 <SelectItem value="volume">按成交量</SelectItem>
                 <SelectItem value="marketCap">按市值</SelectItem>
+                <SelectItem value="lastGoldenCross">按最近金叉</SelectItem>
               </SelectContent>
             </Select>
             
@@ -190,7 +197,7 @@ export function Home() {
           </div>
           
           {/* 结果统计 */}
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <AlertCircle className="h-4 w-4" />
             <span>共找到 {filteredStocks.length} 只股票</span>
           </div>
@@ -217,7 +224,7 @@ export function Home() {
                 上一页
               </Button>
               <div className="flex items-center gap-2 px-4">
-                <span className="text-sm text-gray-600">
+                <span className="text-sm text-muted-foreground">
                   第 {currentPage} / {totalPages} 页
                 </span>
               </div>
@@ -234,7 +241,7 @@ export function Home() {
         
         <TabsContent value="popular" className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="h-5 w-5 text-blue-600" />
+            <TrendingUp className="h-5 w-5 text-primary" />
             <h3 className="text-lg font-semibold">热门股票</h3>
           </div>
           {viewMode === 'grid' ? (

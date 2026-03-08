@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router';
-import { generateStocks, generateIndicators, generatePriceHistory } from '../utils/mockData';
+import { generateStocks, generateIndicators, generatePriceHistory, detectGoldenCrossEvents } from '../utils/mockData';
 import { SubscriptionForm } from '../components/SubscriptionForm';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
@@ -29,6 +29,10 @@ export function StockDetail() {
   const priceHistory = useMemo(() => {
     return stock ? generatePriceHistory(stock) : [];
   }, [stock]);
+
+  const goldenCrossEvents = useMemo(() => {
+    return detectGoldenCrossEvents(priceHistory);
+  }, [priceHistory]);
   
   if (!stock || !indicators) {
     return (
@@ -71,7 +75,7 @@ export function StockDetail() {
               <h1 className="text-3xl font-bold">{stock.nameCn}</h1>
               <Badge variant="outline">{stock.sector}</Badge>
             </div>
-            <p className="text-gray-600 mb-4">{stock.code}</p>
+            <p className="text-muted-foreground mb-4">{stock.code}</p>
             
             <div className="flex items-baseline gap-4">
               <span className="text-4xl font-bold">HK${stock.price.toFixed(2)}</span>
@@ -106,19 +110,19 @@ export function StockDetail() {
         {/* 关键指标 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t">
           <div>
-            <div className="text-sm text-gray-600">成交量</div>
+            <div className="text-sm text-muted-foreground">成交量</div>
             <div className="text-lg font-semibold">{(stock.volume / 1000000).toFixed(2)}M</div>
           </div>
           <div>
-            <div className="text-sm text-gray-600">市值</div>
+            <div className="text-sm text-muted-foreground">市值</div>
             <div className="text-lg font-semibold">{(stock.marketCap / 1000000000).toFixed(2)}B</div>
           </div>
           <div>
-            <div className="text-sm text-gray-600">52周最高</div>
+            <div className="text-sm text-muted-foreground">52周最高</div>
             <div className="text-lg font-semibold">HK${stock.high52w.toFixed(2)}</div>
           </div>
           <div>
-            <div className="text-sm text-gray-600">52周最低</div>
+            <div className="text-sm text-muted-foreground">52周最低</div>
             <div className="text-lg font-semibold">HK${stock.low52w.toFixed(2)}</div>
           </div>
         </div>
@@ -152,8 +156,8 @@ export function StockDetail() {
               <AreaChart data={priceHistory}>
                 <defs>
                   <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#D4AF37" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -169,7 +173,7 @@ export function StockDetail() {
                 <Area 
                   type="monotone" 
                   dataKey="close" 
-                  stroke="#3b82f6" 
+                  stroke="#D4AF37" 
                   fillOpacity={1} 
                   fill="url(#colorPrice)" 
                 />
@@ -184,15 +188,15 @@ export function StockDetail() {
               <h3 className="text-lg font-semibold mb-4">技术指标</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">RSI (相对强弱指标)</span>
+                  <span className="text-muted-foreground">RSI (相对强弱指标)</span>
                   <span className="font-semibold">{indicators.rsi.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">MACD</span>
+                  <span className="text-muted-foreground">MACD</span>
                   <span className="font-semibold">{indicators.macd.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">换手率</span>
+                  <span className="text-muted-foreground">换手率</span>
                   <span className="font-semibold">{indicators.turnoverRate.toFixed(2)}%</span>
                 </div>
               </div>
@@ -202,24 +206,60 @@ export function StockDetail() {
               <h3 className="text-lg font-semibold mb-4">移动平均线</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">MA5 (5日均线)</span>
+                  <span className="text-muted-foreground">MA5 (5日均线)</span>
                   <span className="font-semibold">HK${indicators.ma5.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">MA10 (10日均线)</span>
+                  <span className="text-muted-foreground">MA10 (10日均线)</span>
                   <span className="font-semibold">HK${indicators.ma10.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">MA20 (20日均线)</span>
+                  <span className="text-muted-foreground">MA20 (20日均线)</span>
                   <span className="font-semibold">HK${indicators.ma20.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">MA50 (50日均线)</span>
+                  <span className="text-muted-foreground">MA50 (50日均线)</span>
                   <span className="font-semibold">HK${indicators.ma50.toFixed(2)}</span>
                 </div>
               </div>
             </Card>
             
+            <Card className="p-6 md:col-span-2">
+              <h3 className="text-lg font-semibold mb-4">黄金交叉记录</h3>
+              {goldenCrossEvents.length > 0 ? (
+                <div className="rounded-md border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="text-left p-3 font-medium">日期</th>
+                        <th className="text-left p-3 font-medium">时间</th>
+                        <th className="text-right p-3 font-medium">MA5</th>
+                        <th className="text-right p-3 font-medium">MA20</th>
+                        <th className="text-right p-3 font-medium">收盘价</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {goldenCrossEvents.map((event, i) => {
+                        const [, m, d] = event.date.split('-');
+                        const dateStr = `${parseInt(m, 10)}月${parseInt(d, 10)}日`;
+                        return (
+                        <tr key={i} className="border-b last:border-0">
+                          <td className="p-3">{dateStr}</td>
+                          <td className="p-3">{event.time}</td>
+                          <td className="p-3 text-right font-medium text-primary">{event.shortMA}</td>
+                          <td className="p-3 text-right">{event.longMA}</td>
+                          <td className="p-3 text-right">HK${event.close.toFixed(2)}</td>
+                        </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-muted-foreground py-4">近90日内暂无黄金交叉</p>
+              )}
+            </Card>
+
             <Card className="p-6 md:col-span-2">
               <h3 className="text-lg font-semibold mb-4">移动平均线对比</h3>
               <ResponsiveContainer width="100%" height={300}>
@@ -234,7 +274,7 @@ export function StockDetail() {
                     labelFormatter={(value) => new Date(value).toLocaleDateString('zh-CN')}
                     formatter={(value: any) => `HK$${value.toFixed(2)}`}
                   />
-                  <Line type="monotone" dataKey="close" stroke="#3b82f6" name="收盘价" strokeWidth={2} />
+                  <Line type="monotone" dataKey="close" stroke="#D4AF37" name="收盘价" strokeWidth={2} />
                   <Line type="monotone" dataKey="high" stroke="#10b981" name="最高价" strokeWidth={1} strokeDasharray="5 5" />
                   <Line type="monotone" dataKey="low" stroke="#ef4444" name="最低价" strokeWidth={1} strokeDasharray="5 5" />
                 </LineChart>
@@ -249,15 +289,15 @@ export function StockDetail() {
               <h3 className="text-lg font-semibold mb-4">估值指标</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">市盈率 (P/E)</span>
+                  <span className="text-muted-foreground">市盈率 (P/E)</span>
                   <span className="font-semibold">{stock.pe}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">市净率 (P/B)</span>
+                  <span className="text-muted-foreground">市净率 (P/B)</span>
                   <span className="font-semibold">{stock.pb}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">股息率</span>
+                  <span className="text-muted-foreground">股息率</span>
                   <span className="font-semibold">{stock.dividendYield}%</span>
                 </div>
               </div>
@@ -267,15 +307,15 @@ export function StockDetail() {
               <h3 className="text-lg font-semibold mb-4">市场数据</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">总市值</span>
+                  <span className="text-muted-foreground">总市值</span>
                   <span className="font-semibold">HK${(stock.marketCap / 1000000000).toFixed(2)}B</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">今日成交量</span>
+                  <span className="text-muted-foreground">今日成交量</span>
                   <span className="font-semibold">{(stock.volume / 1000000).toFixed(2)}M</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-gray-600">52周波动</span>
+                  <span className="text-muted-foreground">52周波动</span>
                   <span className="font-semibold">
                     HK${stock.low52w.toFixed(2)} - HK${stock.high52w.toFixed(2)}
                   </span>

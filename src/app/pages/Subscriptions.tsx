@@ -238,10 +238,10 @@ export function Subscriptions() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Bell className="h-8 w-8 text-blue-600" />
+          <Bell className="h-8 w-8 text-primary" />
           <div>
             <h2 className="text-3xl font-bold">订阅监控</h2>
-            <p className="text-sm text-gray-600 mt-1">管理您的股票监控订阅和通知</p>
+            <p className="text-sm text-muted-foreground mt-1">管理您的股票监控订阅和通知</p>
           </div>
         </div>
       </div>
@@ -250,11 +250,11 @@ export function Subscriptions() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-blue-50">
-              <Bell className="h-5 w-5 text-blue-600" />
+            <div className="p-2 rounded-lg bg-primary/20">
+              <Bell className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <div className="text-sm text-gray-600">总订阅数</div>
+              <div className="text-sm text-muted-foreground">总订阅数</div>
               <div className="text-2xl font-bold">{stats.total}</div>
             </div>
           </div>
@@ -262,24 +262,24 @@ export function Subscriptions() {
         
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-green-50">
-              <TrendingUp className="h-5 w-5 text-green-600" />
+            <div className="p-2 rounded-lg bg-green-500/20">
+              <TrendingUp className="h-5 w-5 text-green-500" />
             </div>
             <div>
-              <div className="text-sm text-gray-600">监控中</div>
-              <div className="text-2xl font-bold text-green-600">{stats.active}</div>
+              <div className="text-sm text-muted-foreground">监控中</div>
+              <div className="text-2xl font-bold text-green-500">{stats.active}</div>
             </div>
           </div>
         </Card>
         
         <Card className="p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-orange-50">
-              <AlertCircle className="h-5 w-5 text-orange-600" />
+            <div className="p-2 rounded-lg bg-amber-500/20">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
             </div>
             <div>
-              <div className="text-sm text-gray-600">已触发</div>
-              <div className="text-2xl font-bold text-orange-600">{stats.triggered}</div>
+              <div className="text-sm text-muted-foreground">已触发</div>
+              <div className="text-2xl font-bold text-amber-500">{stats.triggered}</div>
             </div>
           </div>
         </Card>
@@ -305,7 +305,7 @@ export function Subscriptions() {
             <Card className="p-4">
               <div className="flex flex-col md:flex-row gap-4">
                 <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                   <Input
                     type="text"
                     placeholder="搜索股票代码或名称..."
@@ -343,11 +343,11 @@ export function Subscriptions() {
           
           {filteredSubscriptions.length === 0 ? (
             <Card className="p-12 text-center">
-              <BellOff className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+              <BellOff className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-xl font-semibold mb-2">
                 {subscriptions.length === 0 ? '暂无订阅' : '无匹配结果'}
               </h3>
-              <p className="text-gray-600 mb-6">
+              <p className="text-muted-foreground mb-6">
                 {subscriptions.length === 0 
                   ? '在股票详情页创建监控订阅，当指标触发时将收到通知' 
                   : '尝试调整筛选条件或搜索关键词'}
@@ -386,15 +386,15 @@ export function Subscriptions() {
                         )}
                       </div>
                       
-                      <div className="text-sm text-gray-600 space-y-1">
+                      <div className="text-sm text-muted-foreground space-y-1">
                         <div className="font-medium">
                           监控条件: {indicatorLabels[sub.indicator]} {conditionLabels[sub.condition]} {sub.value}
                         </div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-muted-foreground/80">
                           创建时间: {new Date(sub.createdAt).toLocaleString('zh-CN')}
                         </div>
                         {sub.triggeredAt && (
-                          <div className="text-xs text-orange-600">
+                          <div className="text-xs text-amber-500">
                             最近触发: {new Date(sub.triggeredAt).toLocaleString('zh-CN')}
                           </div>
                         )}
@@ -420,7 +420,7 @@ export function Subscriptions() {
                         onClick={() => handleDeleteSubscription(sub.id)}
                         title="删除"
                       >
-                        <Trash2 className="h-4 w-4 text-red-600" />
+                        <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
                   </div>
@@ -433,9 +433,9 @@ export function Subscriptions() {
         <TabsContent value="notifications" className="space-y-4">
           {notifications.length === 0 ? (
             <Card className="p-12 text-center">
-              <Bell className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+              <Bell className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-xl font-semibold mb-2">暂无通知</h3>
-              <p className="text-gray-600">
+              <p className="text-muted-foreground">
                 当您的订阅条件触发时，通知将显示在这里
               </p>
             </Card>
@@ -468,7 +468,7 @@ export function Subscriptions() {
                 {notifications.map((notification) => (
                   <Card 
                     key={notification.id} 
-                    className={`p-4 transition-all ${notification.read ? 'bg-gray-50' : 'bg-blue-50 border-blue-200 shadow-sm'}`}
+                    className={`p-4 transition-all ${notification.read ? 'bg-muted/50' : 'bg-primary/10 border-primary/30 shadow-sm'}`}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
@@ -485,11 +485,11 @@ export function Subscriptions() {
                           )}
                         </div>
                         
-                        <p className="text-sm text-gray-700 mb-2">
+                        <p className="text-sm text-foreground mb-2">
                           {notification.message}
                         </p>
                         
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-muted-foreground">
                           {new Date(notification.timestamp).toLocaleString('zh-CN')}
                         </div>
                       </div>
@@ -511,7 +511,7 @@ export function Subscriptions() {
                           onClick={() => handleDeleteNotification(notification.id)}
                           title="删除"
                         >
-                          <X className="h-4 w-4 text-red-600" />
+                          <X className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
                     </div>

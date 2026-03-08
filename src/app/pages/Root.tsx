@@ -63,16 +63,18 @@ export function Root() {
   );
   
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {/* 顶部导航栏 */}
-      <header className="bg-white border-b sticky top-0 z-50">
+      <header className="bg-card border-b border-border sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">
-                HK
-              </div>
-              <h1 className="text-xl font-bold hidden sm:block">港股监控平台</h1>
+              <img
+                src="/logo.png"
+                alt="金叉叉"
+                className="w-8 h-8 rounded-lg object-cover"
+              />
+              <h1 className="text-xl font-bold hidden sm:block">金叉叉</h1>
             </Link>
             
             {/* 桌面导航 */}
@@ -107,7 +109,7 @@ export function Root() {
       </main>
       
       {/* 移动端底部导航 */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-50">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border z-50">
         <div className="grid grid-cols-3 gap-1 p-2">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -118,7 +120,7 @@ export function Root() {
                 key={item.path}
                 to={item.path}
                 className={`flex flex-col items-center gap-1 py-2 px-3 rounded-lg transition-colors ${
-                  isActive ? 'bg-blue-50 text-blue-600' : 'text-gray-600'
+                  isActive ? 'bg-primary/20 text-primary' : 'text-muted-foreground'
                 }`}
               >
                 <div className="relative">

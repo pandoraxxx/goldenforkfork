@@ -1,4 +1,4 @@
-import { Stock } from '../utils/mockData';
+import { Stock, formatGoldenCrossDate } from '../utils/mockData';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
@@ -41,12 +41,12 @@ export function StockCard({ stock }: StockCardProps) {
                 onClick={handleToggleFavorite}
               >
                 <Star 
-                  className={`h-4 w-4 ${favorite ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400'}`} 
+                  className={`h-4 w-4 ${favorite ? 'fill-primary text-primary' : 'text-muted-foreground'}`} 
                 />
               </Button>
             </div>
-            <p className="text-sm text-gray-600 truncate">{stock.nameCn}</p>
-            <span className="text-xs text-gray-500">{stock.sector}</span>
+            <p className="text-sm text-muted-foreground truncate">{stock.nameCn}</p>
+            <span className="text-xs text-muted-foreground/80">{stock.sector}</span>
           </div>
           <div className={`text-right ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
             <div className="flex items-center justify-end gap-1">
@@ -64,14 +64,14 @@ export function StockCard({ stock }: StockCardProps) {
             </span>
           </div>
           
-          <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 pt-2 border-t">
+          <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pt-2 border-t">
             <div>
               <div>市盈率: {stock.pe}</div>
               <div>市净率: {stock.pb}</div>
             </div>
             <div>
               <div>成交量: {(stock.volume / 1000000).toFixed(2)}M</div>
-              <div>股息率: {stock.dividendYield}%</div>
+              <div>最近金叉: <span className="font-medium text-primary">{stock.lastGoldenCross ? formatGoldenCrossDate(stock.lastGoldenCross) : '暂无'}</span></div>
             </div>
           </div>
         </div>
