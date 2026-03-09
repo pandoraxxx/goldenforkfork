@@ -1,4 +1,5 @@
 const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart';
+const TENCENT_KLINE_URL = 'https://web.ifzq.gtimg.cn/appstock/app/hkfqkline/get?param=';
 
 function toYahooSymbol(code) {
   const normalized = String(parseInt(code, 10) || 0).padStart(4, '0');
@@ -31,6 +32,45 @@ async function fetchJson(url) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchTencentKline(code, range = '3mo') {
+  const daysByRange = {
+    '1mo': 30,
+    '3mo': 90,
+    '6mo': 180,
+    '1y': 365,
+    '2y': 730,
+    '5y': 1825,
+  };
+  const count = daysByRange[range] || 180;
+  const symbol = `hk${String(parseInt(code, 10) || 0).padStart(5, '0')}`;
+  const url = `${TENCENT_KLINE_URL}${encodeURIComponent(`${symbol},day,,,${count},qfq`)}`;
+  const json = await fetchJson(url);
+  const rows = json?.data?.[symbol]?.day;
+  if (!Array.isArray(rows)) return [];
+
+  const out = [];
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length < 6) continue;
+    const date = String(row[0] || '');
+    const open = Number(row[1]);
+    const close = Number(row[2]);
+    const high = Number(row[3]);
+    const low = Number(row[4]);
+    const volume = Math.round(Number(row[5]));
+    if (!date || [open, high, low, close, volume].some((v) => !Number.isFinite(v))) continue;
+    out.push({
+      date,
+      open: Number(open.toFixed(2)),
+      high: Number(high.toFixed(2)),
+      low: Number(low.toFixed(2)),
+      close: Number(close.toFixed(2)),
+      volume,
+    });
+  }
+
+  return out;
 }
 
 function safeNum(v, fallback = 0) {
@@ -143,13 +183,28 @@ export async function getLiveQuoteByCode(code) {
 export async function getLivePriceHistory(code, range = '3mo', interval = '1d') {
   const symbol = toYahooSymbol(code);
   const url = `${YAHOO_CHART_URL}/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
-  const data = await fetchJson(url);
+  let data;
+  try {
+    data = await fetchJson(url);
+  } catch {
+    try {
+      return await fetchTencentKline(code, range);
+    } catch {
+      return [];
+    }
+  }
 
   const result = data?.chart?.result?.[0];
   const ts = result?.timestamp;
   const quote = result?.indicators?.quote?.[0];
 
-  if (!Array.isArray(ts) || !quote) return [];
+  if (!Array.isArray(ts) || !quote) {
+    try {
+      return await fetchTencentKline(code, range);
+    } catch {
+      return [];
+    }
+  }
 
   const out = [];
   for (let i = 0; i < ts.length; i += 1) {
@@ -171,45 +226,64 @@ export async function getLivePriceHistory(code, range = '3mo', interval = '1d') 
     });
   }
 
-  return out;
+  if (out.length > 0) return out;
+  try {
+    return await fetchTencentKline(code, range);
+  } catch {
+    return [];
+  }
 }
 
-export async function getLiveIndicators(code) {
+export async function getLiveIndicators(code, options = {}) {
+  const turnoverRateFromQuote = Number(options.turnoverRate);
+  const hasTurnoverRateFromQuote = Number.isFinite(turnoverRateFromQuote) && turnoverRateFromQuote >= 0;
   const history = await getLivePriceHistory(code, '6mo', '1d');
   const closes = history.map((d) => d.close);
-
-  if (closes.length < 30) {
-    return {
-      rsi: 50,
-      macd: 0,
-      ma5: 0,
-      ma10: 0,
-      ma20: 0,
-      ma50: 0,
-      volume: history.at(-1)?.volume || 0,
-      turnoverRate: 0,
-    };
-  }
-
   const ma = (period) => {
-    const arr = closes.slice(-period);
+    const window = Math.min(period, closes.length);
+    if (window <= 0) return 0;
+    const arr = closes.slice(-window);
     return arr.reduce((a, b) => a + b, 0) / arr.length;
   };
 
   const ema12 = ema(closes, 12);
   const ema26 = ema(closes, 26);
-  const macd = ema12.length > 0 && ema26.length > 0
-    ? ema12[ema12.length - 1] - ema26[ema26.length - 1]
-    : 0;
+  let macdDif = 0;
+  let macdDea = 0;
+  let macdHist = 0;
+  if (ema12.length > 0 && ema26.length > 0) {
+    // Align EMA12 to EMA26 timeline: ema12 starts at close[11], ema26 starts at close[25].
+    const offset = 14;
+    const difSeries = [];
+    for (let i = 0; i < ema26.length; i += 1) {
+      const e12 = ema12[i + offset];
+      const e26 = ema26[i];
+      if (Number.isFinite(e12) && Number.isFinite(e26)) {
+        difSeries.push(e12 - e26);
+      }
+    }
+
+    macdDif = difSeries.at(-1) || 0;
+    const deaSeries = ema(difSeries, 9);
+    macdDea = deaSeries.at(-1) || 0;
+    // Common CN display convention: MACD histogram = 2 * (DIF - DEA).
+    macdHist = 2 * (macdDif - macdDea);
+  }
+
+  const rsiPeriod = Math.min(14, Math.max(2, closes.length - 1));
+  const rsiValue = closes.length >= 3 ? rsi(closes, rsiPeriod) : 50;
 
   return {
-    rsi: Number(rsi(closes, 14).toFixed(2)),
-    macd: Number(macd.toFixed(2)),
+    rsi: Number(rsiValue.toFixed(2)),
+    macd: Number(macdDif.toFixed(2)),
+    macdDif: Number(macdDif.toFixed(2)),
+    macdDea: Number(macdDea.toFixed(2)),
+    macdHist: Number(macdHist.toFixed(2)),
     ma5: Number(ma(5).toFixed(2)),
     ma10: Number(ma(10).toFixed(2)),
     ma20: Number(ma(20).toFixed(2)),
     ma50: Number(ma(50).toFixed(2)),
     volume: history.at(-1)?.volume || 0,
-    turnoverRate: 0,
+    turnoverRate: hasTurnoverRateFromQuote ? Number(turnoverRateFromQuote.toFixed(2)) : 0,
   };
 }

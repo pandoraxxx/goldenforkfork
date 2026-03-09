@@ -35,7 +35,11 @@ export interface Stock {
 
 export interface StockIndicator {
   rsi: number;
+  // Backward-compatible MACD main value (DIF).
   macd: number;
+  macdDif?: number;
+  macdDea?: number;
+  macdHist?: number;
   ma5: number;
   ma10: number;
   ma20: number;

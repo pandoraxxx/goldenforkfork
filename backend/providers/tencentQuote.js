@@ -91,6 +91,7 @@ function parseQuoteBody(body) {
       dividendYield: Number(toNumber(fields[47]).toFixed(2)),
       high52w: Number(toNumber(fields[48]).toFixed(3)),
       low52w: Number(toNumber(fields[49]).toFixed(3)),
+      turnoverRate: Number(toNumber(fields[59]).toFixed(2)),
       exchange: 'HKEX',
       currency: 'HKD',
       marketTime: fields[30] || '',

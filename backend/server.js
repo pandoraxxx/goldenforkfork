@@ -19,6 +19,7 @@ let tencentUniverseSet = null;
 let tencentUniverseLoading = null;
 let marketStatsCache = { at: 0, stats: null };
 let realtimeStocksCache = { at: 0, items: null };
+let realtimeStocksLoading = null;
 const goldenCrossCache = new Map();
 
 async function ensureTencentUniverseSet() {
@@ -76,30 +77,39 @@ async function getRealtimeUniverseStocks() {
     return realtimeStocksCache.items;
   }
 
-  const universe = await ensureTencentUniverseSet();
-  const liveRows = await getTencentQuotes([...universe]);
-  const items = liveRows.map((row) => ({
-    id: row.code,
-    code: row.code,
-    name: row.name || `HK ${row.code}`,
-    nameCn: row.nameCn || row.name || `HK ${row.code}`,
-    price: row.price,
-    change: row.change,
-    changePercent: row.changePercent,
-    volume: row.volume,
-    marketCap: row.marketCap,
-    pe: row.pe,
-    pb: row.pb,
-    dividendYield: row.dividendYield,
-    high52w: row.high52w,
-    low52w: row.low52w,
-    sector: '',
-    lastGoldenCrossByPair: { '5-20': null, '20-50': null, '20-60': null },
-    lastGoldenCross: null,
-  }));
+  if (realtimeStocksLoading) return realtimeStocksLoading;
 
-  realtimeStocksCache = { at: now, items };
-  return items;
+  realtimeStocksLoading = (async () => {
+    const universe = await ensureTencentUniverseSet();
+    const liveRows = await getTencentQuotes([...universe]);
+    const items = liveRows.map((row) => ({
+      id: row.code,
+      code: row.code,
+      name: row.name || `HK ${row.code}`,
+      nameCn: row.nameCn || row.name || `HK ${row.code}`,
+      price: row.price,
+      change: row.change,
+      changePercent: row.changePercent,
+      volume: row.volume,
+      marketCap: row.marketCap,
+      pe: row.pe,
+      pb: row.pb,
+      dividendYield: row.dividendYield,
+      high52w: row.high52w,
+      low52w: row.low52w,
+      sector: '',
+      lastGoldenCrossByPair: { '5-20': null, '20-50': null, '20-60': null },
+      lastGoldenCross: null,
+    }));
+
+    realtimeStocksCache = { at: Date.now(), items };
+    return items;
+  })()
+    .finally(() => {
+      realtimeStocksLoading = null;
+    });
+
+  return realtimeStocksLoading;
 }
 
 async function isValidStockCode(code) {
@@ -253,20 +263,40 @@ function goldenCrossDateMillisByPair(stock, pairKey) {
   return Number.isFinite(ts) ? ts : 0;
 }
 
+function withGoldenCrossFromCache(item) {
+  const byPair = getCachedGoldenCrossByPair(item.code);
+  if (!byPair) return item;
+  return {
+    ...item,
+    lastGoldenCrossByPair: byPair,
+    lastGoldenCross: byPair['5-20'] || null,
+  };
+}
+
 async function enrichStocksWithGoldenCross(items) {
-  const out = [];
-  for (const item of items) {
-    try {
-      const byPair = await getGoldenCrossByPair(item.code);
-      out.push({
-        ...item,
-        lastGoldenCrossByPair: byPair,
-        lastGoldenCross: byPair['5-20'] || null,
-      });
-    } catch {
-      out.push(item);
+  const out = [...items];
+  const concurrency = Math.min(8, out.length);
+  let index = 0;
+
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (index < out.length) {
+      const i = index;
+      index += 1;
+      const item = out[i];
+      try {
+        const byPair = await getGoldenCrossByPair(item.code);
+        out[i] = {
+          ...item,
+          lastGoldenCrossByPair: byPair,
+          lastGoldenCross: byPair['5-20'] || null,
+        };
+      } catch {
+        out[i] = item;
+      }
     }
-  }
+  });
+
+  await Promise.all(workers);
   return out;
 }
 
@@ -395,7 +425,8 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && /^\/api\/live\/stocks\/\d{5}\/indicators$/.test(pathname)) {
       const code = pathname.split('/')[4];
-      const indicators = await getLiveIndicators(code);
+      const quote = (await getTencentQuotes([code]))[0];
+      const indicators = await getLiveIndicators(code, { turnoverRate: quote?.turnoverRate });
       sendJson(res, 200, indicators);
       return;
     }
@@ -417,6 +448,7 @@ const server = http.createServer(async (req, res) => {
       const tab = searchParams.get('tab') || 'all';
       const pair = searchParams.get('pair') || db.preferences.goldenCrossPair || '5-20';
       const start = (page - 1) * pageSize;
+      const needAccurateGoldenCrossSort = tab === 'all' && sortBy === 'lastGoldenCross';
       const realtime = applySearchSectorFilters(await getRealtimeUniverseStocks(), searchParams);
 
       let ranked = realtime;
@@ -432,16 +464,10 @@ const server = http.createServer(async (req, res) => {
           .filter((s) => s.changePercent < 0)
           .sort((a, b) => a.changePercent - b.changePercent);
       } else {
-        if (sortBy === 'lastGoldenCross') {
+        if (needAccurateGoldenCrossSort) {
           await warmupGoldenCrossCache(realtime.map((s) => s.code));
           ranked = realtime.map((s) => {
-            const byPair = getCachedGoldenCrossByPair(s.code);
-            if (!byPair) return s;
-            return {
-              ...s,
-              lastGoldenCrossByPair: byPair,
-              lastGoldenCross: byPair['5-20'] || null,
-            };
+            return withGoldenCrossFromCache(s);
           });
         }
         ranked = [...ranked].sort((a, b) => {
@@ -459,7 +485,18 @@ const server = http.createServer(async (req, res) => {
       }
 
       const items = ranked.slice(start, start + pageSize);
-      const enrichedItems = await enrichStocksWithGoldenCross(items);
+      let enrichedItems;
+      if (needAccurateGoldenCrossSort) {
+        // already enriched enough for sorting; no need to block again
+        enrichedItems = items;
+      } else if (tab !== 'all') {
+        // Ranking tabs have small page size; enrich eagerly to avoid all "-" on cold cache.
+        enrichedItems = await enrichStocksWithGoldenCross(items);
+      } else {
+        // fast path: return immediately with cached values and warm up in background
+        enrichedItems = items.map((item) => withGoldenCrossFromCache(item));
+        warmupGoldenCrossCache(items.map((item) => item.code), 1500, 6).catch(() => {});
+      }
 
       sendJson(res, 200, {
         items: enrichedItems,
@@ -512,7 +549,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 404, { error: '股票不存在' });
         return;
       }
-      const indicators = await getLiveIndicators(code);
+      const indicators = await getLiveIndicators(code, { turnoverRate: rows[0].turnoverRate });
       sendJson(res, 200, indicators);
       return;
     }
@@ -735,4 +772,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
   console.log(`Stock Alarm API running at http://${HOST}:${PORT}`);
+  // Warm first snapshot to reduce initial homepage latency.
+  getRealtimeUniverseStocks().catch(() => {});
 });

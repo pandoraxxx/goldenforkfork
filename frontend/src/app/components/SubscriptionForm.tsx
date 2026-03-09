@@ -19,6 +19,9 @@ interface SubscriptionFormProps {
 const fallbackIndicators: StockIndicator = {
   rsi: 50,
   macd: 0,
+  macdDif: 0,
+  macdDea: 0,
+  macdHist: 0,
   ma5: 0,
   ma10: 0,
   ma20: 0,

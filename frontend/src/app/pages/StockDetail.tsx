@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router';
 import { MA_PAIRS } from '../utils/market';
 import {
@@ -43,8 +43,10 @@ export function StockDetail() {
 
     async function load() {
       try {
-        const [baseStock, indicatorsData, history, favorites, ...goldenList] = await Promise.all([
-          getStock(code),
+        const baseStock = await getStock(code);
+        if (!alive) return;
+
+        const [indicatorsResult, historyResult, favoritesResult, ...goldenListResults] = await Promise.allSettled([
           getStockIndicators(code),
           getStockPriceHistory(code, { days: 90 }),
           getFavorites(),
@@ -53,9 +55,30 @@ export function StockDetail() {
 
         if (!alive) return;
 
+        const indicatorsData: StockIndicator =
+          indicatorsResult.status === 'fulfilled'
+            ? indicatorsResult.value
+            : {
+                rsi: 50,
+                macd: 0,
+                macdDif: 0,
+                macdDea: 0,
+                macdHist: 0,
+                ma5: 0,
+                ma10: 0,
+                ma20: 0,
+                ma50: 0,
+                volume: 0,
+                turnoverRate: 0,
+              };
+
+        const history = historyResult.status === 'fulfilled' ? historyResult.value : [];
+        const favorites = favoritesResult.status === 'fulfilled' ? favoritesResult.value : [];
+
         const byPair: Record<string, GoldenCrossEvent[]> = {};
         MA_PAIRS.forEach((pair, idx) => {
-          byPair[pair.key] = goldenList[idx].events || [];
+          const r = goldenListResults[idx];
+          byPair[pair.key] = r && r.status === 'fulfilled' ? r.value.events || [] : [];
         });
 
         setStock(baseStock);
@@ -77,6 +100,24 @@ export function StockDetail() {
       alive = false;
     };
   }, [code]);
+
+  const xTickInterval = useMemo(() => {
+    if (priceHistory.length <= 10) return 0;
+    return Math.max(1, Math.ceil(priceHistory.length / 8) - 1);
+  }, [priceHistory]);
+
+  const yDomain = useMemo<[number, number]>(() => {
+    if (priceHistory.length === 0) return [0, 1];
+    const prices = priceHistory
+      .map((p) => Number(p.close))
+      .filter((v) => Number.isFinite(v));
+    if (prices.length === 0) return [0, 1];
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const span = Math.max(max - min, max * 0.01, 0.01);
+    const pad = span * 0.12;
+    return [Math.max(0, min - pad), max + pad];
+  }, [priceHistory]);
 
   if (loading) {
     return (
@@ -108,6 +149,25 @@ export function StockDetail() {
   }
 
   const isPositive = stock.change >= 0;
+
+  const formatPriceTick = (value: number) => {
+    const abs = Math.abs(value);
+    if (abs >= 100) return value.toFixed(1);
+    if (abs >= 10) return value.toFixed(2);
+    if (abs >= 1) return value.toFixed(2);
+    if (abs >= 0.1) return value.toFixed(3);
+    return value.toFixed(4);
+  };
+
+  const formatValuationNumber = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return '--';
+    return value.toFixed(2);
+  };
+
+  const formatDividendYield = (value: number) => {
+    if (!Number.isFinite(value) || value < 0) return '--';
+    return `${value.toFixed(2)}%`;
+  };
 
   const handleToggleFavorite = async () => {
     try {
@@ -223,9 +283,11 @@ export function StockDetail() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
                   dataKey="date"
+                  interval={xTickInterval}
+                  minTickGap={24}
                   tickFormatter={(value) => new Date(value).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}
                 />
-                <YAxis domain={['dataMin - 5', 'dataMax + 5']} />
+                <YAxis domain={yDomain} tickCount={6} tickFormatter={(value: number) => formatPriceTick(value)} />
                 <Tooltip
                   labelFormatter={(value) => new Date(value).toLocaleDateString('zh-CN')}
                   formatter={(value: number) => [`HK$${value.toFixed(2)}`, '收盘价']}
@@ -252,8 +314,16 @@ export function StockDetail() {
                   <span className="font-semibold">{indicators.rsi.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
-                  <span className="text-muted-foreground">MACD</span>
-                  <span className="font-semibold">{indicators.macd.toFixed(2)}</span>
+                  <span className="text-muted-foreground">MACD DIF</span>
+                  <span className="font-semibold">{(indicators.macdDif ?? indicators.macd).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center pb-3 border-b">
+                  <span className="text-muted-foreground">MACD DEA</span>
+                  <span className="font-semibold">{(indicators.macdDea ?? 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center pb-3 border-b">
+                  <span className="text-muted-foreground">MACD Histogram</span>
+                  <span className="font-semibold">{(indicators.macdHist ?? 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-3 border-b">
                   <span className="text-muted-foreground">换手率</span>
@@ -341,9 +411,11 @@ export function StockDetail() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="date"
+                    interval={xTickInterval}
+                    minTickGap={24}
                     tickFormatter={(value) => new Date(value).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}
                   />
-                  <YAxis />
+                  <YAxis domain={yDomain} tickCount={6} tickFormatter={(value: number) => formatPriceTick(value)} />
                   <Tooltip
                     labelFormatter={(value) => new Date(value).toLocaleDateString('zh-CN')}
                     formatter={(value: number) => `HK$${value.toFixed(2)}`}
@@ -363,8 +435,16 @@ export function StockDetail() {
               <h3 className="text-lg font-semibold mb-4">估值指标</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b">
+                  <span className="text-muted-foreground">市盈率 (PE, TTM)</span>
+                  <span className="font-semibold">{formatValuationNumber(stock.pe)}</span>
+                </div>
+                <div className="flex justify-between items-center pb-3 border-b">
+                  <span className="text-muted-foreground">市净率 (PB)</span>
+                  <span className="font-semibold">{formatValuationNumber(stock.pb)}</span>
+                </div>
+                <div className="flex justify-between items-center pb-3 border-b">
                   <span className="text-muted-foreground">股息率</span>
-                  <span className="font-semibold">{stock.dividendYield}%</span>
+                  <span className="font-semibold">{formatDividendYield(stock.dividendYield)}</span>
                 </div>
               </div>
             </Card>
