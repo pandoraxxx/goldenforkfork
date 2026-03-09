@@ -1,6 +1,13 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { generateStocks, Stock, popularStocks, MA_PAIRS, type GoldenCrossPairKey } from '../utils/mockData';
-import { getGoldenCrossPair, setGoldenCrossPair } from '../utils/storage';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MA_PAIRS, type GoldenCrossPairKey } from '../utils/mockData';
+import {
+  getGoldenCrossPairPreference,
+  getMarketStats,
+  getMeta,
+  getStocks,
+  setGoldenCrossPairPreference,
+  Stock,
+} from '../api/client';
 import { StockCard } from '../components/StockCard';
 import { StockTable } from '../components/StockTable';
 import { Input } from '../components/ui/input';
@@ -13,116 +20,146 @@ import { Card } from '../components/ui/card';
 const STOCKS_PER_PAGE = 20;
 
 export function Home() {
-  const [stocks] = useState<Stock[]>(() => generateStocks(3000));
+  const [stocks, setStocks] = useState<Stock[]>([]);
+  const [popularStocksList, setPopularStocksList] = useState<Stock[]>([]);
+  const [topGainers, setTopGainers] = useState<Stock[]>([]);
+  const [topLosers, setTopLosers] = useState<Stock[]>([]);
+  const [totalStocks, setTotalStocks] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [sectorFilter, setSectorFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'code' | 'change' | 'volume' | 'marketCap' | 'lastGoldenCross'>('volume');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState('all');
-  const [goldenCrossPair, setGoldenCrossPairState] = useState<GoldenCrossPairKey>(() => {
-    const saved = getGoldenCrossPair();
-    return (MA_PAIRS.some(p => p.key === saved) ? saved : '5-20') as GoldenCrossPairKey;
-  });
-  const handleGoldenCrossPairChange = (key: string) => {
-    setGoldenCrossPair(key);
-    setGoldenCrossPairState(key as GoldenCrossPairKey);
-  };
-  
-  // 获取所有板块
-  const sectors = useMemo(() => {
-    const sectorSet = new Set(stocks.map(s => s.sector));
-    return Array.from(sectorSet).sort();
-  }, [stocks]);
-  
-  // 热门股票
-  const popularStocksList = useMemo(() => {
-    return stocks.filter(s => popularStocks.includes(s.code));
-  }, [stocks]);
-  
-  // 涨幅榜
-  const topGainers = useMemo(() => {
-    return [...stocks]
-      .filter(s => s.change > 0)
-      .sort((a, b) => b.changePercent - a.changePercent)
-      .slice(0, 10);
-  }, [stocks]);
-  
-  // 跌幅榜
-  const topLosers = useMemo(() => {
-    return [...stocks]
-      .filter(s => s.change < 0)
-      .sort((a, b) => a.changePercent - b.changePercent)
-      .slice(0, 10);
-  }, [stocks]);
-  
-  // 筛选和排序股票
-  const filteredStocks = useMemo(() => {
-    let result = stocks;
-    
-    // 搜索过滤
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(
-        s => s.code.includes(query) || 
-             s.name.toLowerCase().includes(query) || 
-             s.nameCn.includes(query)
-      );
-    }
-    
-    // 板块过滤
-    if (sectorFilter !== 'all') {
-      result = result.filter(s => s.sector === sectorFilter);
-    }
-    
-    // 排序
-    result = [...result].sort((a, b) => {
-      switch (sortBy) {
-        case 'change':
-          return b.changePercent - a.changePercent;
-        case 'volume':
-          return b.volume - a.volume;
-        case 'marketCap':
-          return b.marketCap - a.marketCap;
-        case 'lastGoldenCross': {
-          const aEv = a.lastGoldenCrossByPair[goldenCrossPair];
-          const bEv = b.lastGoldenCrossByPair[goldenCrossPair];
-          const aDate = aEv ? new Date(aEv.date).getTime() : 0;
-          const bDate = bEv ? new Date(bEv.date).getTime() : 0;
-          return bDate - aDate;
+  const [goldenCrossPair, setGoldenCrossPairState] = useState<GoldenCrossPairKey>('5-20');
+  const [sectors, setSectors] = useState<string[]>([]);
+  const [marketStats, setMarketStats] = useState({ rising: 0, falling: 0, unchanged: 0 });
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadMeta() {
+      try {
+        const [meta, pref] = await Promise.all([
+          getMeta(),
+          getGoldenCrossPairPreference(),
+        ]);
+        if (!alive) return;
+        setSectors(meta.sectors || []);
+        if (MA_PAIRS.some((pair) => pair.key === pref.pairKey)) {
+          setGoldenCrossPairState(pref.pairKey as GoldenCrossPairKey);
         }
-        default:
-          return a.code.localeCompare(b.code);
+      } catch {
+        if (alive) setSectors([]);
       }
-    });
-    
-    return result;
-  }, [stocks, searchQuery, sectorFilter, sortBy, goldenCrossPair]);
-  
-  // 分页
-  const totalPages = Math.ceil(filteredStocks.length / STOCKS_PER_PAGE);
-  const paginatedStocks = filteredStocks.slice(
-    (currentPage - 1) * STOCKS_PER_PAGE,
-    currentPage * STOCKS_PER_PAGE
-  );
-  
-  // 切换标签时重置页码
+    }
+
+    loadMeta();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const loadStats = async () => {
+      try {
+        const s = await getMarketStats();
+        if (alive) {
+          setMarketStats({ rising: s.rising, falling: s.falling, unchanged: s.unchanged });
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    loadStats();
+    const interval = setInterval(loadStats, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadList() {
+      try {
+        const data = await getStocks({
+          search: searchQuery,
+          sector: sectorFilter,
+          tab: 'all',
+          sortBy,
+          pair: goldenCrossPair,
+          page: currentPage,
+          pageSize: STOCKS_PER_PAGE,
+        });
+        if (!alive) return;
+        setStocks(data.items);
+        setTotalStocks(data.total);
+      } catch {
+        if (alive) {
+          setStocks([]);
+          setTotalStocks(0);
+        }
+      }
+    }
+
+    loadList();
+    return () => {
+      alive = false;
+    };
+  }, [searchQuery, sectorFilter, sortBy, currentPage, goldenCrossPair]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadRankings() {
+      try {
+        const [popular, gainers, losers] = await Promise.all([
+          getStocks({ tab: 'popular', page: 1, pageSize: 20 }),
+          getStocks({ tab: 'gainers', page: 1, pageSize: 20 }),
+          getStocks({ tab: 'losers', page: 1, pageSize: 20 }),
+        ]);
+        if (!alive) return;
+        setPopularStocksList(popular.items);
+        setTopGainers(gainers.items);
+        setTopLosers(losers.items);
+      } catch {
+        if (alive) {
+          setPopularStocksList([]);
+          setTopGainers([]);
+          setTopLosers([]);
+        }
+      }
+    }
+
+    loadRankings();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const handleGoldenCrossPairChange = async (key: string) => {
+    setGoldenCrossPairState(key as GoldenCrossPairKey);
+    try {
+      await setGoldenCrossPairPreference(key);
+    } catch {
+      // ignore
+    }
+  };
+
+  const totalPages = Math.ceil(totalStocks / STOCKS_PER_PAGE);
+
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, sectorFilter, sortBy, activeTab]);
-  
-  // 统计数据
-  const stats = useMemo(() => {
-    const rising = stocks.filter(s => s.change > 0).length;
-    const falling = stocks.filter(s => s.change < 0).length;
-    const unchanged = stocks.length - rising - falling;
-    
-    return { rising, falling, unchanged };
-  }, [stocks]);
-  
+
+  const stats = useMemo(() => marketStats, [marketStats]);
+
   return (
     <div className="space-y-6">
-      {/* 标题和统计 */}
       <div>
         <h2 className="text-3xl font-bold mb-4">港股市场</h2>
         <div className="grid grid-cols-3 gap-4">
@@ -140,7 +177,7 @@ export function Home() {
           </Card>
         </div>
       </div>
-      
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="all">全部股票</TabsTrigger>
@@ -148,9 +185,8 @@ export function Home() {
           <TabsTrigger value="gainers">涨幅榜</TabsTrigger>
           <TabsTrigger value="losers">跌幅榜</TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="all" className="space-y-4">
-          {/* 搜索和筛选 */}
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-5 w-5" />
@@ -162,31 +198,20 @@ export function Home() {
                 className="pl-10"
               />
             </div>
-            
+
             <Select value={sectorFilter} onValueChange={setSectorFilter}>
               <SelectTrigger className="w-full md:w-[180px]">
                 <SelectValue placeholder="选择板块" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部板块</SelectItem>
-                {sectors.map(sector => (
+                {sectors.map((sector) => (
                   <SelectItem key={sector} value={sector}>{sector}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            
-            <Select value={goldenCrossPair} onValueChange={handleGoldenCrossPairChange}>
-              <SelectTrigger className="w-full md:w-[140px]">
-                <SelectValue placeholder="金叉均线" />
-              </SelectTrigger>
-              <SelectContent>
-                {MA_PAIRS.map(p => (
-                  <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
+
+            <Select value={sortBy} onValueChange={(value: 'code' | 'change' | 'volume' | 'marketCap' | 'lastGoldenCross') => setSortBy(value)}>
               <SelectTrigger className="w-full md:w-[180px]">
                 <SelectValue placeholder="排序方式" />
               </SelectTrigger>
@@ -198,7 +223,18 @@ export function Home() {
                 <SelectItem value="lastGoldenCross">按最近金叉</SelectItem>
               </SelectContent>
             </Select>
-            
+
+            <Select value={goldenCrossPair} onValueChange={handleGoldenCrossPairChange}>
+              <SelectTrigger className="w-full md:w-[140px]">
+                <SelectValue placeholder="金叉均线" />
+              </SelectTrigger>
+              <SelectContent>
+                {MA_PAIRS.map((p) => (
+                  <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             <div className="flex gap-2">
               <Button
                 variant={viewMode === 'table' ? 'default' : 'outline'}
@@ -216,30 +252,27 @@ export function Home() {
               </Button>
             </div>
           </div>
-          
-          {/* 结果统计 */}
+
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <AlertCircle className="h-4 w-4" />
-            <span>共找到 {filteredStocks.length} 只股票</span>
+            <span>共找到 {totalStocks} 只股票</span>
           </div>
-          
-          {/* 股票列表 */}
+
           {viewMode === 'grid' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {paginatedStocks.map(stock => (
+              {stocks.map((stock) => (
                 <StockCard key={stock.id} stock={stock} goldenCrossPair={goldenCrossPair} />
               ))}
             </div>
           ) : (
-            <StockTable stocks={paginatedStocks} goldenCrossPair={goldenCrossPair} />
+            <StockTable stocks={stocks} goldenCrossPair={goldenCrossPair} />
           )}
-          
-          {/* 分页 */}
+
           {totalPages > 1 && (
             <div className="flex justify-center gap-2 mt-6">
               <Button
                 variant="outline"
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
               >
                 上一页
@@ -251,7 +284,7 @@ export function Home() {
               </div>
               <Button
                 variant="outline"
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
               >
                 下一页
@@ -259,7 +292,7 @@ export function Home() {
             </div>
           )}
         </TabsContent>
-        
+
         <TabsContent value="popular" className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="h-5 w-5 text-primary" />
@@ -267,7 +300,7 @@ export function Home() {
           </div>
           {viewMode === 'grid' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {popularStocksList.map(stock => (
+              {popularStocksList.map((stock) => (
                 <StockCard key={stock.id} stock={stock} goldenCrossPair={goldenCrossPair} />
               ))}
             </div>
@@ -275,7 +308,7 @@ export function Home() {
             <StockTable stocks={popularStocksList} goldenCrossPair={goldenCrossPair} />
           )}
         </TabsContent>
-        
+
         <TabsContent value="gainers" className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="h-5 w-5 text-green-600" />
@@ -283,7 +316,7 @@ export function Home() {
           </div>
           {viewMode === 'grid' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {topGainers.map(stock => (
+              {topGainers.map((stock) => (
                 <StockCard key={stock.id} stock={stock} goldenCrossPair={goldenCrossPair} />
               ))}
             </div>
@@ -291,7 +324,7 @@ export function Home() {
             <StockTable stocks={topGainers} goldenCrossPair={goldenCrossPair} />
           )}
         </TabsContent>
-        
+
         <TabsContent value="losers" className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="h-5 w-5 text-red-600 rotate-180" />
@@ -299,7 +332,7 @@ export function Home() {
           </div>
           {viewMode === 'grid' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {topLosers.map(stock => (
+              {topLosers.map((stock) => (
                 <StockCard key={stock.id} stock={stock} goldenCrossPair={goldenCrossPair} />
               ))}
             </div>

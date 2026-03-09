@@ -1,9 +1,8 @@
-import { Stock } from '../utils/mockData';
+import { Stock, createSubscription } from '../api/client';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { TrendingUp, TrendingDown, AlertTriangle, DollarSign, Activity, BarChart3 } from 'lucide-react';
-import { saveSubscription } from '../utils/storage';
 import { toast } from 'sonner';
 
 interface SubscriptionTemplate {
@@ -26,7 +25,7 @@ const templates: SubscriptionTemplate[] = [
     color: 'text-green-600',
     indicator: 'price',
     condition: 'above',
-    getValue: (stock) => stock.high52w
+    getValue: (stock) => stock.high52w,
   },
   {
     id: 'price-support',
@@ -36,7 +35,7 @@ const templates: SubscriptionTemplate[] = [
     color: 'text-red-600',
     indicator: 'price',
     condition: 'below',
-    getValue: (stock) => stock.low52w
+    getValue: (stock) => stock.low52w,
   },
   {
     id: 'price-target-high',
@@ -46,7 +45,7 @@ const templates: SubscriptionTemplate[] = [
     color: 'text-blue-600',
     indicator: 'price',
     condition: 'above',
-    getValue: (stock) => stock.price * 1.1
+    getValue: (stock) => stock.price * 1.1,
   },
   {
     id: 'price-target-low',
@@ -56,7 +55,7 @@ const templates: SubscriptionTemplate[] = [
     color: 'text-orange-600',
     indicator: 'price',
     condition: 'below',
-    getValue: (stock) => stock.price * 0.9
+    getValue: (stock) => stock.price * 0.9,
   },
   {
     id: 'pe-low',
@@ -66,7 +65,7 @@ const templates: SubscriptionTemplate[] = [
     color: 'text-purple-600',
     indicator: 'pe',
     condition: 'below',
-    getValue: () => 15
+    getValue: () => 15,
   },
   {
     id: 'pe-high',
@@ -76,7 +75,7 @@ const templates: SubscriptionTemplate[] = [
     color: 'text-yellow-600',
     indicator: 'pe',
     condition: 'above',
-    getValue: () => 30
+    getValue: () => 30,
   },
   {
     id: 'volume-surge',
@@ -86,7 +85,7 @@ const templates: SubscriptionTemplate[] = [
     color: 'text-cyan-600',
     indicator: 'volume',
     condition: 'above',
-    getValue: (stock) => stock.volume * 2
+    getValue: (stock) => stock.volume * 2,
   },
   {
     id: 'pb-low',
@@ -96,7 +95,7 @@ const templates: SubscriptionTemplate[] = [
     color: 'text-indigo-600',
     indicator: 'pb',
     condition: 'below',
-    getValue: () => 1.5
+    getValue: () => 1.5,
   },
 ];
 
@@ -106,67 +105,71 @@ interface SubscriptionTemplatesProps {
 }
 
 export function SubscriptionTemplates({ stock, onSubscribe }: SubscriptionTemplatesProps) {
-  const handleApplyTemplate = (template: SubscriptionTemplate) => {
+  const handleApplyTemplate = async (template: SubscriptionTemplate) => {
     const value = template.getValue(stock);
-    
-    saveSubscription({
-      stockCode: stock.code,
-      stockName: stock.nameCn,
-      indicator: template.indicator,
-      condition: template.condition,
-      value,
-      isActive: true
-    });
-    
-    const indicatorLabels: any = {
-      price: '价格',
-      rsi: 'RSI',
-      macd: 'MACD',
-      volume: '成交量',
-      pe: '市盈率',
-      pb: '市净率'
-    };
-    
-    const conditionLabels: any = {
-      above: '高于',
-      below: '低于',
-      equal: '等于'
-    };
-    
-    toast.success('订阅创建成功！', {
-      description: `${template.name}: ${indicatorLabels[template.indicator]}${conditionLabels[template.condition]} ${value.toFixed(2)}`
-    });
-    
-    onSubscribe?.();
+
+    try {
+      await createSubscription({
+        stockCode: stock.code,
+        stockName: stock.nameCn,
+        indicator: template.indicator,
+        condition: template.condition,
+        value,
+        isActive: true,
+      });
+
+      const indicatorLabels: Record<string, string> = {
+        price: '价格',
+        rsi: 'RSI',
+        macd: 'MACD',
+        volume: '成交量',
+        pe: '市盈率',
+        pb: '市净率',
+      };
+
+      const conditionLabels: Record<string, string> = {
+        above: '高于',
+        below: '低于',
+        equal: '等于',
+      };
+
+      toast.success('订阅创建成功！', {
+        description: `${template.name}: ${indicatorLabels[template.indicator]}${conditionLabels[template.condition]} ${value.toFixed(2)}`,
+      });
+
+      onSubscribe?.();
+    } catch {
+      toast.error('订阅创建失败，请稍后重试');
+    }
   };
-  
+
   return (
     <div className="space-y-4">
       <div>
         <h3 className="text-lg font-semibold mb-2">快速订阅模板</h3>
         <p className="text-sm text-gray-600">选择预设模板快速创建订阅，当条件触发时将通知您</p>
       </div>
-      
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {templates.map((template) => {
           const Icon = template.icon;
           const value = template.getValue(stock);
-          
-          const indicatorLabels: any = {
+
+          const indicatorLabels: Record<string, string> = {
             price: '价格',
             rsi: 'RSI',
             macd: 'MACD',
             volume: '成交量',
             pe: '市盈率',
-            pb: '市净率'
+            pb: '市净率',
           };
-          
-          const conditionLabels: any = {
+
+          const conditionLabels: Record<string, string> = {
             above: '>',
             below: '<',
-            equal: '='
+            equal: '=',
           };
-          
+
           return (
             <Card key={template.id} className="p-4 hover:shadow-md transition-shadow">
               <div className="flex items-start gap-3">

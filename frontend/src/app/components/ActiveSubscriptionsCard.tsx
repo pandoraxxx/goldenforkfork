@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getSubscriptions, deleteSubscription, toggleSubscription } from '../utils/storage';
+import { deleteSubscription, getSubscriptions, toggleSubscription, Subscription } from '../api/client';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -14,50 +14,55 @@ interface ActiveSubscriptionsCardProps {
 }
 
 export function ActiveSubscriptionsCard({ stockCode }: ActiveSubscriptionsCardProps) {
-  const [subscriptions, setSubscriptions] = useState(() => 
-    getSubscriptions().filter(s => s.stockCode === stockCode)
-  );
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  
+
+  const refresh = async () => {
+    try {
+      const list = await getSubscriptions();
+      setSubscriptions(list.filter((s) => s.stockCode === stockCode));
+    } catch {
+      setSubscriptions([]);
+    }
+  };
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSubscriptions(getSubscriptions().filter(s => s.stockCode === stockCode));
-    }, 2000);
-    
+    refresh();
+    const interval = setInterval(refresh, 3000);
     return () => clearInterval(interval);
   }, [stockCode]);
-  
-  const handleToggle = (id: string) => {
-    toggleSubscription(id);
-    setSubscriptions(getSubscriptions().filter(s => s.stockCode === stockCode));
+
+  const handleToggle = async (id: string) => {
+    await toggleSubscription(id);
+    await refresh();
     toast.success('订阅状态已更新');
   };
-  
-  const handleDelete = (id: string) => {
-    deleteSubscription(id);
-    setSubscriptions(getSubscriptions().filter(s => s.stockCode === stockCode));
+
+  const handleDelete = async (id: string) => {
+    await deleteSubscription(id);
+    await refresh();
     toast.success('订阅已删除');
   };
-  
-  const indicatorLabels: any = {
+
+  const indicatorLabels: Record<string, string> = {
     price: '价格',
     rsi: 'RSI',
     macd: 'MACD',
     volume: '成交量',
     pe: '市盈率',
-    pb: '市净率'
+    pb: '市净率',
   };
-  
-  const conditionLabels: any = {
+
+  const conditionLabels: Record<string, string> = {
     above: '大于',
     below: '小于',
-    equal: '等于'
+    equal: '等于',
   };
-  
+
   if (subscriptions.length === 0) {
     return null;
   }
-  
+
   return (
     <>
       <Card className="p-6">
@@ -66,7 +71,7 @@ export function ActiveSubscriptionsCard({ stockCode }: ActiveSubscriptionsCardPr
           <h3 className="text-lg font-semibold">当前监控订阅</h3>
           <Badge variant="secondary">{subscriptions.length}</Badge>
         </div>
-        
+
         <div className="space-y-3">
           {subscriptions.map((sub) => (
             <Card key={sub.id} className="p-4 bg-gray-50">
@@ -81,7 +86,7 @@ export function ActiveSubscriptionsCard({ stockCode }: ActiveSubscriptionsCardPr
                     ) : (
                       <Badge variant="secondary">已暂停</Badge>
                     )}
-                    
+
                     {sub.triggeredAt && (
                       <Badge variant="destructive" className="gap-1">
                         <AlertCircle className="h-3 w-3" />
@@ -89,7 +94,7 @@ export function ActiveSubscriptionsCard({ stockCode }: ActiveSubscriptionsCardPr
                       </Badge>
                     )}
                   </div>
-                  
+
                   <div className="text-sm space-y-1">
                     <div className="font-medium">
                       {indicatorLabels[sub.indicator]} {conditionLabels[sub.condition]} {sub.value}
@@ -99,7 +104,7 @@ export function ActiveSubscriptionsCard({ stockCode }: ActiveSubscriptionsCardPr
                         month: 'numeric',
                         day: 'numeric',
                         hour: '2-digit',
-                        minute: '2-digit'
+                        minute: '2-digit',
                       })}
                     </div>
                     {sub.triggeredAt && (
@@ -108,13 +113,13 @@ export function ActiveSubscriptionsCard({ stockCode }: ActiveSubscriptionsCardPr
                           month: 'numeric',
                           day: 'numeric',
                           hour: '2-digit',
-                          minute: '2-digit'
+                          minute: '2-digit',
                         })}
                       </div>
                     )}
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={sub.isActive}
@@ -141,7 +146,7 @@ export function ActiveSubscriptionsCard({ stockCode }: ActiveSubscriptionsCardPr
             </Card>
           ))}
         </div>
-        
+
         <div className="mt-4 pt-4 border-t">
           <Link to="/subscriptions">
             <Button variant="outline" className="w-full">
@@ -150,15 +155,13 @@ export function ActiveSubscriptionsCard({ stockCode }: ActiveSubscriptionsCardPr
           </Link>
         </div>
       </Card>
-      
+
       {editingId && (
         <EditSubscriptionDialog
           subscriptionId={editingId}
           open={true}
           onOpenChange={(open) => !open && setEditingId(null)}
-          onSuccess={() => {
-            setSubscriptions(getSubscriptions().filter(s => s.stockCode === stockCode));
-          }}
+          onSuccess={refresh}
         />
       )}
     </>

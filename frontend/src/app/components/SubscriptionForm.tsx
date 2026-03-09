@@ -1,6 +1,5 @@
-import { useState } from 'react';
-import { Stock, generateIndicators } from '../utils/mockData';
-import { saveSubscription } from '../utils/storage';
+import { useEffect, useState } from 'react';
+import { createSubscription, getStockIndicators, Stock, StockIndicator } from '../api/client';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -17,29 +16,53 @@ interface SubscriptionFormProps {
   onSuccess?: () => void;
 }
 
+const fallbackIndicators: StockIndicator = {
+  rsi: 50,
+  macd: 0,
+  ma5: 0,
+  ma10: 0,
+  ma20: 0,
+  ma50: 0,
+  volume: 0,
+  turnoverRate: 0,
+};
+
 export function SubscriptionForm({ stock, onSuccess }: SubscriptionFormProps) {
   const [indicator, setIndicator] = useState<'price' | 'rsi' | 'macd' | 'volume' | 'pe' | 'pb'>('price');
   const [condition, setCondition] = useState<'above' | 'below' | 'equal'>('above');
   const [value, setValue] = useState('');
-  
-  const indicators = generateIndicators(stock);
-  
+  const [indicators, setIndicators] = useState<StockIndicator>(fallbackIndicators);
+
+  useEffect(() => {
+    let alive = true;
+    getStockIndicators(stock.code, true)
+      .then((data) => {
+        if (alive) setIndicators(data);
+      })
+      .catch(() => {
+        if (alive) setIndicators(fallbackIndicators);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [stock.code]);
+
   const indicatorLabels: Record<string, string> = {
     price: '价格',
     rsi: 'RSI指标',
     macd: 'MACD',
     volume: '成交量',
     pe: '市盈率',
-    pb: '市净率'
+    pb: '市净率',
   };
-  
+
   const conditionLabels: Record<string, string> = {
     above: '大于',
     below: '小于',
-    equal: '等于'
+    equal: '等于',
   };
-  
-  // 获取当前指标的值
+
   const getCurrentValue = () => {
     switch (indicator) {
       case 'price':
@@ -58,10 +81,9 @@ export function SubscriptionForm({ stock, onSuccess }: SubscriptionFormProps) {
         return 0;
     }
   };
-  
+
   const currentValue = getCurrentValue();
-  
-  // 建议的目标值
+
   const suggestedValues = () => {
     switch (indicator) {
       case 'price':
@@ -95,32 +117,36 @@ export function SubscriptionForm({ stock, onSuccess }: SubscriptionFormProps) {
         return [];
     }
   };
-  
-  const handleSubmit = (e: React.FormEvent) => {
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!value || isNaN(Number(value))) {
+
+    if (!value || Number.isNaN(Number(value))) {
       toast.error('请输入有效的数值');
       return;
     }
-    
-    saveSubscription({
-      stockCode: stock.code,
-      stockName: stock.nameCn,
-      indicator,
-      condition,
-      value: Number(value),
-      isActive: true
-    });
-    
-    toast.success('订阅创建成功！', {
-      description: `当 ${stock.nameCn} 的${indicatorLabels[indicator]}${conditionLabels[condition]} ${value} 时将通知您`
-    });
-    
-    setValue('');
-    onSuccess?.();
+
+    try {
+      await createSubscription({
+        stockCode: stock.code,
+        stockName: stock.nameCn,
+        indicator,
+        condition,
+        value: Number(value),
+        isActive: true,
+      });
+
+      toast.success('订阅创建成功！', {
+        description: `当 ${stock.nameCn} 的${indicatorLabels[indicator]}${conditionLabels[condition]} ${value} 时将通知您`,
+      });
+
+      setValue('');
+      onSuccess?.();
+    } catch {
+      toast.error('订阅创建失败，请稍后重试');
+    }
   };
-  
+
   return (
     <Card className="p-6">
       <Tabs defaultValue="templates" className="space-y-4">
@@ -134,22 +160,21 @@ export function SubscriptionForm({ stock, onSuccess }: SubscriptionFormProps) {
             自定义
           </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="templates">
           <SubscriptionTemplates stock={stock} onSubscribe={onSuccess} />
         </TabsContent>
-        
+
         <TabsContent value="custom" className="space-y-4">
           <div>
             <h3 className="text-lg font-semibold mb-2">自定义监控订阅</h3>
             <p className="text-sm text-gray-600">设置自定义指标和目标值，当条件触发时将通知您</p>
           </div>
-          
+
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* 指标选择 */}
             <div className="space-y-2">
               <Label htmlFor="indicator">监控指标</Label>
-              <Select value={indicator} onValueChange={(value: any) => setIndicator(value)}>
+              <Select value={indicator} onValueChange={(value: 'price' | 'rsi' | 'macd' | 'volume' | 'pe' | 'pb') => setIndicator(value)}>
                 <SelectTrigger id="indicator">
                   <SelectValue />
                 </SelectTrigger>
@@ -168,11 +193,10 @@ export function SubscriptionForm({ stock, onSuccess }: SubscriptionFormProps) {
                 </Badge>
               </div>
             </div>
-            
-            {/* 条件选择 */}
+
             <div className="space-y-2">
               <Label htmlFor="condition">触发条件</Label>
-              <Select value={condition} onValueChange={(value: any) => setCondition(value)}>
+              <Select value={condition} onValueChange={(value: 'above' | 'below' | 'equal') => setCondition(value)}>
                 <SelectTrigger id="condition">
                   <SelectValue />
                 </SelectTrigger>
@@ -185,8 +209,7 @@ export function SubscriptionForm({ stock, onSuccess }: SubscriptionFormProps) {
                 </SelectContent>
               </Select>
             </div>
-            
-            {/* 目标值输入 */}
+
             <div className="space-y-2">
               <Label htmlFor="value">目标值</Label>
               <Input
@@ -198,8 +221,7 @@ export function SubscriptionForm({ stock, onSuccess }: SubscriptionFormProps) {
                 placeholder="请输入目标值"
                 required
               />
-              
-              {/* 快速选择建议值 */}
+
               {suggestedValues().length > 0 && (
                 <div className="space-y-2">
                   <div className="text-xs text-gray-600">快速选择:</div>
@@ -219,9 +241,8 @@ export function SubscriptionForm({ stock, onSuccess }: SubscriptionFormProps) {
                 </div>
               )}
             </div>
-            
-            {/* 预览 */}
-            {value && !isNaN(Number(value)) && (
+
+            {value && !Number.isNaN(Number(value)) && (
               <Card className="p-4 bg-blue-50 border-blue-200">
                 <div className="text-sm">
                   <div className="font-semibold mb-1">订阅预览</div>
@@ -238,7 +259,7 @@ export function SubscriptionForm({ stock, onSuccess }: SubscriptionFormProps) {
                 </div>
               </Card>
             )}
-            
+
             <Button type="submit" className="w-full" size="lg">
               创建订阅
             </Button>

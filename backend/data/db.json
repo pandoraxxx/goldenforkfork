@@ -1,0 +1,18 @@
+{
+  "subscriptions": [],
+  "notifications": [
+    {
+      "id": "9bc3202a-7b33-4a8b-9e42-990f1b19f1f2",
+      "subscriptionId": "f68d3b97-241c-4fe1-a161-6bfd0f5866b6",
+      "stockCode": "00700",
+      "stockName": "Tencent",
+      "message": "Tencent 的价格已低于 999999（当前: 271.02）",
+      "timestamp": "2026-03-09T15:15:47.957Z",
+      "read": true
+    }
+  ],
+  "favorites": [],
+  "preferences": {
+    "goldenCrossPair": "5-20"
+  }
+}

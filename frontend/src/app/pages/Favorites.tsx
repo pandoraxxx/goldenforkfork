@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
-import { generateStocks, Stock, type GoldenCrossPairKey } from '../utils/mockData';
-import { getFavorites, getGoldenCrossPair } from '../utils/storage';
+import { useEffect, useState } from 'react';
+import { type GoldenCrossPairKey } from '../utils/mockData';
+import { getFavorites, getGoldenCrossPairPreference, getStock, Stock } from '../api/client';
 import { StockCard } from '../components/StockCard';
 import { StockTable } from '../components/StockTable';
 import { Button } from '../components/ui/button';
@@ -8,38 +8,44 @@ import { Star, Grid, List } from 'lucide-react';
 import { Card } from '../components/ui/card';
 
 export function Favorites() {
-  const [stocks] = useState<Stock[]>(() => generateStocks(3000));
+  const [favoriteStocks, setFavoriteStocks] = useState<Stock[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
-  const [favorites, setFavorites] = useState<string[]>(getFavorites());
-  const goldenCrossPair = (getGoldenCrossPair() || '5-20') as GoldenCrossPairKey;
-  
-  // 刷新自选股列表
-  const refreshFavorites = () => {
-    setFavorites(getFavorites());
-  };
-  
-  // 过滤自选股
-  const favoriteStocks = useMemo(() => {
-    return stocks.filter(s => favorites.includes(s.code));
-  }, [stocks, favorites]);
-  
-  // 监听storage变化
-  useState(() => {
-    const handleStorageChange = () => {
-      refreshFavorites();
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    
-    // 定期检查更新
-    const interval = setInterval(refreshFavorites, 2000);
-    
+  const [goldenCrossPair, setGoldenCrossPair] = useState<GoldenCrossPairKey>('5-20');
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadFavorites() {
+      try {
+        const codes = await getFavorites();
+        const items = await Promise.all(codes.map((code) => getStock(code).catch(() => null)));
+        if (alive) {
+          setFavoriteStocks(items.filter((item): item is Stock => item !== null));
+        }
+      } catch {
+        if (alive) setFavoriteStocks([]);
+      }
+    }
+
+    async function loadPreference() {
+      try {
+        const pref = await getGoldenCrossPairPreference();
+        if (alive) setGoldenCrossPair((pref.pairKey || '5-20') as GoldenCrossPairKey);
+      } catch {
+        if (alive) setGoldenCrossPair('5-20');
+      }
+    }
+
+    loadFavorites();
+    loadPreference();
+    const interval = setInterval(loadFavorites, 3000);
+
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
+      alive = false;
       clearInterval(interval);
     };
-  });
-  
+  }, []);
+
   if (favoriteStocks.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -56,7 +62,7 @@ export function Favorites() {
       </div>
     );
   }
-  
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -67,7 +73,7 @@ export function Favorites() {
             <p className="text-sm text-muted-foreground mt-1">共 {favoriteStocks.length} 只股票</p>
           </div>
         </div>
-        
+
         <div className="flex gap-2">
           <Button
             variant={viewMode === 'table' ? 'default' : 'outline'}
@@ -85,10 +91,10 @@ export function Favorites() {
           </Button>
         </div>
       </div>
-      
+
       {viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {favoriteStocks.map(stock => (
+          {favoriteStocks.map((stock) => (
             <StockCard key={stock.id} stock={stock} goldenCrossPair={goldenCrossPair} />
           ))}
         </div>

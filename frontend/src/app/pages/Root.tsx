@@ -3,7 +3,7 @@ import { Home, Bell, Star, Menu } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from '../components/ui/sheet';
-import { getNotifications } from '../utils/storage';
+import { getNotifications } from '../api/client';
 import { useState, useEffect } from 'react';
 
 export function Root() {
@@ -12,10 +12,14 @@ export function Root() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
   useEffect(() => {
-    const updateUnreadCount = () => {
-      const notifications = getNotifications();
-      const unread = notifications.filter(n => !n.read).length;
-      setUnreadCount(unread);
+    const updateUnreadCount = async () => {
+      try {
+        const notifications = await getNotifications();
+        const unread = notifications.filter(n => !n.read).length;
+        setUnreadCount(unread);
+      } catch {
+        setUnreadCount(0);
+      }
     };
     
     updateUnreadCount();

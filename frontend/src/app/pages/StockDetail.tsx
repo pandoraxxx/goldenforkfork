@@ -1,44 +1,114 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router';
-import { generateStocks, generateIndicators, generatePriceHistory, detectGoldenCrossEvents, MA_PAIRS } from '../utils/mockData';
+import { MA_PAIRS } from '../utils/mockData';
+import {
+  addFavorite,
+  getFavorites,
+  getLiveStock,
+  getStock,
+  getStockGoldenCross,
+  getStockIndicators,
+  getStockPriceHistory,
+  removeFavorite,
+  Stock,
+  StockIndicator,
+  PriceHistory,
+  GoldenCrossEvent,
+} from '../api/client';
 import { SubscriptionForm } from '../components/SubscriptionForm';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Badge } from '../components/ui/badge';
-import { ArrowLeft, Star, TrendingUp, TrendingDown, Bell, BellRing } from 'lucide-react';
+import { ArrowLeft, Star, TrendingUp, TrendingDown, Bell } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { isFavorite, addFavorite, removeFavorite, getSubscriptions } from '../utils/storage';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { ActiveSubscriptionsCard } from '../components/ActiveSubscriptionsCard';
+import { toast } from 'sonner';
 
 export function StockDetail() {
   const { code } = useParams<{ code: string }>();
-  const [stocks] = useState(() => generateStocks(3000));
-  const [favorite, setFavorite] = useState(() => isFavorite(code || ''));
+  const [stock, setStock] = useState<Stock | null>(null);
+  const [indicators, setIndicators] = useState<StockIndicator | null>(null);
+  const [priceHistory, setPriceHistory] = useState<PriceHistory[]>([]);
+  const [goldenCrossEventsByPair, setGoldenCrossEventsByPair] = useState<Record<string, GoldenCrossEvent[]>>({});
+  const [favorite, setFavorite] = useState(false);
   const [showSubscriptionForm, setShowSubscriptionForm] = useState(false);
-  
-  const stock = useMemo(() => {
-    return stocks.find(s => s.code === code);
-  }, [stocks, code]);
-  
-  const indicators = useMemo(() => {
-    return stock ? generateIndicators(stock) : null;
-  }, [stock]);
-  
-  const priceHistory = useMemo(() => {
-    return stock ? generatePriceHistory(stock) : [];
-  }, [stock]);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  const goldenCrossEventsByPair = useMemo(() => {
-    const byPair: Record<string, ReturnType<typeof detectGoldenCrossEvents>> = {};
-    for (const pair of MA_PAIRS) {
-      byPair[pair.key] = detectGoldenCrossEvents(priceHistory, pair.short, pair.long, pair.key);
+  useEffect(() => {
+    if (!code) return;
+    let alive = true;
+    setLoading(true);
+    setNotFound(false);
+
+    async function load() {
+      try {
+        const [baseStock, liveStock, liveIndicators, history, favorites, ...goldenList] = await Promise.all([
+          getStock(code),
+          getLiveStock(code).catch(() => ({})),
+          getStockIndicators(code, true),
+          getStockPriceHistory(code, { live: true, range: '3mo', interval: '1d' }),
+          getFavorites(),
+          ...MA_PAIRS.map((pair) => getStockGoldenCross(code, pair.key, true)),
+        ]);
+
+        if (!alive) return;
+
+        const mergedStock: Stock = {
+          ...baseStock,
+          ...liveStock,
+          id: baseStock.id,
+          code: baseStock.code,
+          sector: baseStock.sector,
+          lastGoldenCrossByPair: baseStock.lastGoldenCrossByPair,
+          lastGoldenCross: baseStock.lastGoldenCross,
+        };
+
+        const byPair: Record<string, GoldenCrossEvent[]> = {};
+        MA_PAIRS.forEach((pair, idx) => {
+          byPair[pair.key] = goldenList[idx].events || [];
+        });
+
+        setStock(mergedStock);
+        setIndicators(liveIndicators);
+        setPriceHistory(history);
+        setGoldenCrossEventsByPair(byPair);
+        setFavorite(favorites.includes(code));
+        setLoading(false);
+      } catch {
+        if (!alive) return;
+        setNotFound(true);
+        setLoading(false);
+      }
     }
-    return byPair;
-  }, [priceHistory]);
-  
-  if (!stock || !indicators) {
+
+    load();
+
+    return () => {
+      alive = false;
+    };
+  }, [code]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="h-10 w-28 rounded-md bg-muted animate-pulse" />
+        <Card className="p-6">
+          <div className="space-y-4">
+            <div className="h-8 w-56 rounded bg-muted animate-pulse" />
+            <div className="h-6 w-36 rounded bg-muted animate-pulse" />
+            <div className="h-12 w-48 rounded bg-muted animate-pulse" />
+          </div>
+        </Card>
+        <Card className="p-6">
+          <div className="h-72 w-full rounded bg-muted animate-pulse" />
+        </Card>
+      </div>
+    );
+  }
+
+  if (notFound || !stock || !indicators) {
     return (
       <div className="text-center py-20">
         <h2 className="text-2xl font-bold mb-4">股票不存在</h2>
@@ -48,30 +118,32 @@ export function StockDetail() {
       </div>
     );
   }
-  
+
   const isPositive = stock.change >= 0;
-  
-  const handleToggleFavorite = () => {
-    if (favorite) {
-      removeFavorite(stock.code);
-      setFavorite(false);
-    } else {
-      addFavorite(stock.code);
-      setFavorite(true);
+
+  const handleToggleFavorite = async () => {
+    try {
+      if (favorite) {
+        await removeFavorite(stock.code);
+        setFavorite(false);
+      } else {
+        await addFavorite(stock.code);
+        setFavorite(true);
+      }
+    } catch {
+      toast.error('收藏操作失败，请稍后重试');
     }
   };
-  
+
   return (
     <div className="space-y-6">
-      {/* 返回按钮 */}
       <Link to="/">
         <Button variant="ghost" className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           返回
         </Button>
       </Link>
-      
-      {/* 股票头部信息 */}
+
       <Card className="p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex-1">
@@ -80,7 +152,7 @@ export function StockDetail() {
               <Badge variant="outline">{stock.sector}</Badge>
             </div>
             <p className="text-muted-foreground mb-4">{stock.code}</p>
-            
+
             <div className="flex items-baseline gap-4">
               <span className="text-4xl font-bold">HK${stock.price.toFixed(2)}</span>
               <div className={`flex items-center gap-2 text-xl ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
@@ -90,7 +162,7 @@ export function StockDetail() {
               </div>
             </div>
           </div>
-          
+
           <div className="flex gap-2">
             <Button
               variant={favorite ? 'default' : 'outline'}
@@ -110,8 +182,7 @@ export function StockDetail() {
             </Button>
           </div>
         </div>
-        
-        {/* 关键指标 */}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t">
           <div>
             <div className="text-sm text-muted-foreground">成交量</div>
@@ -131,28 +202,25 @@ export function StockDetail() {
           </div>
         </div>
       </Card>
-      
-      {/* 订阅表单 */}
+
       {showSubscriptionForm && (
-        <SubscriptionForm 
-          stock={stock} 
+        <SubscriptionForm
+          stock={stock}
           onSuccess={() => {
             setShowSubscriptionForm(false);
           }}
         />
       )}
-      
-      {/* 当前订阅状态 */}
+
       <ActiveSubscriptionsCard stockCode={stock.code} />
-      
-      {/* 图表和指标 */}
+
       <Tabs defaultValue="chart" className="space-y-4">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="chart">价格走势</TabsTrigger>
           <TabsTrigger value="indicators">技术指标</TabsTrigger>
           <TabsTrigger value="fundamentals">基本面</TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="chart">
           <Card className="p-6">
             <h3 className="text-lg font-semibold mb-4">90日价格走势</h3>
@@ -165,27 +233,27 @@ export function StockDetail() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="date" 
+                <XAxis
+                  dataKey="date"
                   tickFormatter={(value) => new Date(value).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}
                 />
                 <YAxis domain={['dataMin - 5', 'dataMax + 5']} />
-                <Tooltip 
+                <Tooltip
                   labelFormatter={(value) => new Date(value).toLocaleDateString('zh-CN')}
-                  formatter={(value: any) => [`HK$${value.toFixed(2)}`, '收盘价']}
+                  formatter={(value: number) => [`HK$${value.toFixed(2)}`, '收盘价']}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="close" 
-                  stroke="#D4AF37" 
-                  fillOpacity={1} 
-                  fill="url(#colorPrice)" 
+                <Area
+                  type="monotone"
+                  dataKey="close"
+                  stroke="#D4AF37"
+                  fillOpacity={1}
+                  fill="url(#colorPrice)"
                 />
               </AreaChart>
             </ResponsiveContainer>
           </Card>
         </TabsContent>
-        
+
         <TabsContent value="indicators">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card className="p-6">
@@ -205,7 +273,7 @@ export function StockDetail() {
                 </div>
               </div>
             </Card>
-            
+
             <Card className="p-6">
               <h3 className="text-lg font-semibold mb-4">移动平均线</h3>
               <div className="space-y-4">
@@ -227,16 +295,16 @@ export function StockDetail() {
                 </div>
               </div>
             </Card>
-            
+
             <Card className="p-6 md:col-span-2">
               <h3 className="text-lg font-semibold mb-4">黄金交叉记录</h3>
               <Tabs defaultValue={MA_PAIRS[0].key} className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
-                  {MA_PAIRS.map(p => (
+                  {MA_PAIRS.map((p) => (
                     <TabsTrigger key={p.key} value={p.key}>{p.label}</TabsTrigger>
                   ))}
                 </TabsList>
-                {MA_PAIRS.map(pair => {
+                {MA_PAIRS.map((pair) => {
                   const events = goldenCrossEventsByPair[pair.key] ?? [];
                   return (
                     <TabsContent key={pair.key} value={pair.key} className="mt-4">
@@ -283,14 +351,14 @@ export function StockDetail() {
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={priceHistory}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="date" 
+                  <XAxis
+                    dataKey="date"
                     tickFormatter={(value) => new Date(value).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}
                   />
                   <YAxis />
-                  <Tooltip 
+                  <Tooltip
                     labelFormatter={(value) => new Date(value).toLocaleDateString('zh-CN')}
-                    formatter={(value: any) => `HK$${value.toFixed(2)}`}
+                    formatter={(value: number) => `HK$${value.toFixed(2)}`}
                   />
                   <Line type="monotone" dataKey="close" stroke="#D4AF37" name="收盘价" strokeWidth={2} />
                   <Line type="monotone" dataKey="high" stroke="#10b981" name="最高价" strokeWidth={1} strokeDasharray="5 5" />
@@ -300,7 +368,7 @@ export function StockDetail() {
             </Card>
           </div>
         </TabsContent>
-        
+
         <TabsContent value="fundamentals">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card className="p-6">
@@ -312,7 +380,7 @@ export function StockDetail() {
                 </div>
               </div>
             </Card>
-            
+
             <Card className="p-6">
               <h3 className="text-lg font-semibold mb-4">市场数据</h3>
               <div className="space-y-4">

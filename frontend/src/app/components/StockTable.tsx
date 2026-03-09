@@ -1,10 +1,11 @@
-import { Stock, formatGoldenCrossDate, MA_PAIRS, type GoldenCrossPairKey } from '../utils/mockData';
+import { formatGoldenCrossDate, MA_PAIRS, type GoldenCrossPairKey } from '../utils/mockData';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Link } from 'react-router';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
-import { isFavorite, addFavorite, removeFavorite } from '../utils/storage';
-import { useState } from 'react';
+import { addFavorite, getFavorites, removeFavorite, Stock } from '../api/client';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 interface StockTableProps {
   stocks: Stock[];
@@ -13,18 +14,34 @@ interface StockTableProps {
 
 export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps) {
   const pairLabel = MA_PAIRS.find(p => p.key === goldenCrossPair)?.label ?? 'MA5/20';
-  const [favorites, setFavorites] = useState<Set<string>>(new Set(stocks.map(s => s.code).filter(isFavorite)));
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let alive = true;
+    getFavorites()
+      .then((codes) => {
+        if (alive) setFavorites(new Set(codes));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   
-  const handleToggleFavorite = (stockCode: string) => {
+  const handleToggleFavorite = async (stockCode: string) => {
     const newFavorites = new Set(favorites);
-    if (favorites.has(stockCode)) {
-      removeFavorite(stockCode);
-      newFavorites.delete(stockCode);
-    } else {
-      addFavorite(stockCode);
-      newFavorites.add(stockCode);
+    try {
+      if (favorites.has(stockCode)) {
+        await removeFavorite(stockCode);
+        newFavorites.delete(stockCode);
+      } else {
+        await addFavorite(stockCode);
+        newFavorites.add(stockCode);
+      }
+      setFavorites(newFavorites);
+    } catch {
+      toast.error('收藏操作失败，请稍后重试');
     }
-    setFavorites(newFavorites);
   };
   
   return (

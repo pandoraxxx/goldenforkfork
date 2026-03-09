@@ -1,10 +1,11 @@
-import { Stock, formatGoldenCrossDate, type GoldenCrossPairKey } from '../utils/mockData';
+import { formatGoldenCrossDate, type GoldenCrossPairKey } from '../utils/mockData';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Link } from 'react-router';
-import { isFavorite, addFavorite, removeFavorite } from '../utils/storage';
-import { useState } from 'react';
+import { addFavorite, getFavorites, removeFavorite, Stock } from '../api/client';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 interface StockCardProps {
   stock: Stock;
@@ -12,19 +13,33 @@ interface StockCardProps {
 }
 
 export function StockCard({ stock, goldenCrossPair = '5-20' }: StockCardProps) {
-  const [favorite, setFavorite] = useState(isFavorite(stock.code));
+  const [favorite, setFavorite] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    getFavorites()
+      .then((codes) => {
+        if (alive) {
+          setFavorite(codes.includes(stock.code));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [stock.code]);
   
   const isPositive = stock.change >= 0;
   
-  const handleToggleFavorite = (e: React.MouseEvent) => {
+  const handleToggleFavorite = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (favorite) {
-      removeFavorite(stock.code);
-      setFavorite(false);
-    } else {
-      addFavorite(stock.code);
-      setFavorite(true);
+    try {
+      if (favorite) await removeFavorite(stock.code);
+      else await addFavorite(stock.code);
+      setFavorite(!favorite);
+    } catch {
+      toast.error('收藏操作失败，请稍后重试');
     }
   };
   

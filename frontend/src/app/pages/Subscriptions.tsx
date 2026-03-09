@@ -1,19 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
-import { 
-  getSubscriptions, 
-  deleteSubscription, 
-  toggleSubscription,
-  getNotifications,
-  markNotificationAsRead,
-  markAllNotificationsAsRead,
-  deleteNotification,
+import {
+  checkSubscriptions,
   clearAllNotifications,
-  addNotification,
-  updateSubscriptionTrigger,
+  deleteNotification,
+  deleteSubscription,
+  getNotifications,
+  getSubscriptions,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+  Notification,
   Subscription,
-  Notification
-} from '../utils/storage';
-import { generateStocks } from '../utils/mockData';
+  toggleSubscription,
+} from '../api/client';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -21,7 +19,7 @@ import { Switch } from '../components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Input } from '../components/ui/input';
-import { Bell, Trash2, BellOff, CheckCheck, X, Edit, Search, Filter, TrendingUp, AlertCircle } from 'lucide-react';
+import { Bell, Trash2, BellOff, CheckCheck, X, Edit, Search, TrendingUp, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router';
 import { EditSubscriptionDialog } from '../components/EditSubscriptionDialog';
@@ -29,211 +27,130 @@ import { EditSubscriptionDialog } from '../components/EditSubscriptionDialog';
 export function Subscriptions() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [stocks] = useState(() => generateStocks(3000));
   const [editingId, setEditingId] = useState<string | null>(null);
-  
-  // 筛选状态
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [indicatorFilter, setIndicatorFilter] = useState<'all' | 'price' | 'rsi' | 'macd' | 'volume' | 'pe' | 'pb'>('all');
-  
-  const loadData = () => {
-    setSubscriptions(getSubscriptions());
-    setNotifications(getNotifications());
+
+  const loadData = async () => {
+    try {
+      const [subs, notes] = await Promise.all([getSubscriptions(), getNotifications()]);
+      setSubscriptions(subs);
+      setNotifications(notes);
+    } catch {
+      setSubscriptions([]);
+      setNotifications([]);
+    }
   };
-  
+
   useEffect(() => {
     loadData();
-    
-    // 定期刷新数据
-    const interval = setInterval(loadData, 2000);
-    
-    // 模拟指标监控
-    const checkInterval = setInterval(() => {
-      checkSubscriptions();
-    }, 10000); // 每10秒检查一次
-    
+
+    const interval = setInterval(loadData, 3000);
+    const checkInterval = setInterval(async () => {
+      try {
+        const result = await checkSubscriptions();
+        if (result.count > 0 && result.notifications[0]) {
+          toast.info('订阅提醒', {
+            description: result.notifications[0].message,
+          });
+          await loadData();
+        }
+      } catch {
+        // ignore
+      }
+    }, 10000);
+
     return () => {
       clearInterval(interval);
       clearInterval(checkInterval);
     };
   }, []);
-  
-  // 检查订阅条件
-  const checkSubscriptions = () => {
-    const subs = getSubscriptions();
-    const activeSubscriptions = subs.filter(s => s.isActive);
-    
-    activeSubscriptions.forEach(sub => {
-      const stock = stocks.find(s => s.code === sub.stockCode);
-      if (!stock) return;
-      
-      let currentValue: number;
-      switch (sub.indicator) {
-        case 'price':
-          currentValue = stock.price;
-          break;
-        case 'volume':
-          currentValue = stock.volume;
-          break;
-        case 'pe':
-          currentValue = stock.pe;
-          break;
-        case 'pb':
-          currentValue = stock.pb;
-          break;
-        default:
-          return;
-      }
-      
-      let triggered = false;
-      switch (sub.condition) {
-        case 'above':
-          triggered = currentValue > sub.value;
-          break;
-        case 'below':
-          triggered = currentValue < sub.value;
-          break;
-        case 'equal':
-          triggered = Math.abs(currentValue - sub.value) < 0.01;
-          break;
-      }
-      
-      if (triggered) {
-        // 检查是否最近已经触发过（避免重复通知）
-        if (sub.triggeredAt) {
-          const lastTriggered = new Date(sub.triggeredAt).getTime();
-          const now = Date.now();
-          if (now - lastTriggered < 60000) { // 1分钟内不重复通知
-            return;
-          }
-        }
-        
-        const indicatorLabels: any = {
-          price: '价格',
-          rsi: 'RSI',
-          macd: 'MACD',
-          volume: '成交量',
-          pe: '市盈率',
-          pb: '市净率'
-        };
-        
-        const conditionLabels: any = {
-          above: '高于',
-          below: '低于',
-          equal: '等于'
-        };
-        
-        const message = `${sub.stockName} 的${indicatorLabels[sub.indicator]}已${conditionLabels[sub.condition]} ${sub.value}（当前: ${currentValue.toFixed(2)}）`;
-        
-        addNotification({
-          subscriptionId: sub.id,
-          stockCode: sub.stockCode,
-          stockName: sub.stockName,
-          message
-        });
-        
-        updateSubscriptionTrigger(sub.id);
-        
-        toast.info('订阅提醒', {
-          description: message
-        });
-        
-        loadData();
-      }
-    });
-  };
-  
-  // 筛选订阅
+
   const filteredSubscriptions = useMemo(() => {
     let result = subscriptions;
-    
-    // 搜索过滤
+
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      result = result.filter(s => 
+      result = result.filter((s) =>
         s.stockCode.toLowerCase().includes(query) ||
-        s.stockName.toLowerCase().includes(query)
+        s.stockName.toLowerCase().includes(query),
       );
     }
-    
-    // 状态过滤
+
     if (statusFilter !== 'all') {
-      result = result.filter(s => 
-        statusFilter === 'active' ? s.isActive : !s.isActive
+      result = result.filter((s) =>
+        statusFilter === 'active' ? s.isActive : !s.isActive,
       );
     }
-    
-    // 指标过滤
+
     if (indicatorFilter !== 'all') {
-      result = result.filter(s => s.indicator === indicatorFilter);
+      result = result.filter((s) => s.indicator === indicatorFilter);
     }
-    
+
     return result;
   }, [subscriptions, searchQuery, statusFilter, indicatorFilter]);
-  
-  const handleToggleSubscription = (id: string) => {
-    toggleSubscription(id);
-    loadData();
+
+  const handleToggleSubscription = async (id: string) => {
+    await toggleSubscription(id);
+    await loadData();
     toast.success('订阅状态已更新');
   };
-  
-  const handleDeleteSubscription = (id: string) => {
-    deleteSubscription(id);
-    loadData();
+
+  const handleDeleteSubscription = async (id: string) => {
+    await deleteSubscription(id);
+    await loadData();
     toast.success('订阅已删除');
   };
-  
-  const handleMarkAsRead = (id: string) => {
-    markNotificationAsRead(id);
-    loadData();
+
+  const handleMarkAsRead = async (id: string) => {
+    await markNotificationAsRead(id);
+    await loadData();
   };
-  
-  const handleMarkAllAsRead = () => {
-    markAllNotificationsAsRead();
-    loadData();
+
+  const handleMarkAllAsRead = async () => {
+    await markAllNotificationsAsRead();
+    await loadData();
     toast.success('所有通知已标记为已读');
   };
-  
-  const handleDeleteNotification = (id: string) => {
-    deleteNotification(id);
-    loadData();
+
+  const handleDeleteNotification = async (id: string) => {
+    await deleteNotification(id);
+    await loadData();
   };
-  
-  const handleClearAll = () => {
-    clearAllNotifications();
-    loadData();
+
+  const handleClearAll = async () => {
+    await clearAllNotifications();
+    await loadData();
     toast.success('所有通知已清除');
   };
-  
-  const unreadCount = useMemo(() => {
-    return notifications.filter(n => !n.read).length;
-  }, [notifications]);
-  
-  // 统计数据
+
+  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
+
   const stats = useMemo(() => {
     return {
       total: subscriptions.length,
-      active: subscriptions.filter(s => s.isActive).length,
-      triggered: subscriptions.filter(s => s.triggeredAt).length
+      active: subscriptions.filter((s) => s.isActive).length,
+      triggered: subscriptions.filter((s) => s.triggeredAt).length,
     };
   }, [subscriptions]);
-  
-  const indicatorLabels: any = {
+
+  const indicatorLabels: Record<string, string> = {
     price: '价格',
     rsi: 'RSI',
     macd: 'MACD',
     volume: '成交量',
     pe: '市盈率',
-    pb: '市净率'
+    pb: '市净率',
   };
-  
-  const conditionLabels: any = {
+
+  const conditionLabels: Record<string, string> = {
     above: '大于',
     below: '小于',
-    equal: '等于'
+    equal: '等于',
   };
-  
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -245,8 +162,7 @@ export function Subscriptions() {
           </div>
         </div>
       </div>
-      
-      {/* 统计卡片 */}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="p-4">
           <div className="flex items-center gap-3">
@@ -259,7 +175,7 @@ export function Subscriptions() {
             </div>
           </div>
         </Card>
-        
+
         <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-green-500/20">
@@ -271,7 +187,7 @@ export function Subscriptions() {
             </div>
           </div>
         </Card>
-        
+
         <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-amber-500/20">
@@ -284,7 +200,7 @@ export function Subscriptions() {
           </div>
         </Card>
       </div>
-      
+
       <Tabs defaultValue="subscriptions" className="space-y-4">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="subscriptions">
@@ -298,9 +214,8 @@ export function Subscriptions() {
             )}
           </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="subscriptions" className="space-y-4">
-          {/* 筛选栏 */}
           {subscriptions.length > 0 && (
             <Card className="p-4">
               <div className="flex flex-col md:flex-row gap-4">
@@ -314,8 +229,8 @@ export function Subscriptions() {
                     className="pl-10"
                   />
                 </div>
-                
-                <Select value={statusFilter} onValueChange={(value: any) => setStatusFilter(value)}>
+
+                <Select value={statusFilter} onValueChange={(value: 'all' | 'active' | 'inactive') => setStatusFilter(value)}>
                   <SelectTrigger className="w-full md:w-[150px]">
                     <SelectValue placeholder="状态" />
                   </SelectTrigger>
@@ -325,8 +240,8 @@ export function Subscriptions() {
                     <SelectItem value="inactive">已暂停</SelectItem>
                   </SelectContent>
                 </Select>
-                
-                <Select value={indicatorFilter} onValueChange={(value: any) => setIndicatorFilter(value)}>
+
+                <Select value={indicatorFilter} onValueChange={(value: 'all' | 'price' | 'rsi' | 'macd' | 'volume' | 'pe' | 'pb') => setIndicatorFilter(value)}>
                   <SelectTrigger className="w-full md:w-[150px]">
                     <SelectValue placeholder="指标" />
                   </SelectTrigger>
@@ -340,7 +255,7 @@ export function Subscriptions() {
               </div>
             </Card>
           )}
-          
+
           {filteredSubscriptions.length === 0 ? (
             <Card className="p-12 text-center">
               <BellOff className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
@@ -348,8 +263,8 @@ export function Subscriptions() {
                 {subscriptions.length === 0 ? '暂无订阅' : '无匹配结果'}
               </h3>
               <p className="text-muted-foreground mb-6">
-                {subscriptions.length === 0 
-                  ? '在股票详情页创建监控订阅，当指标触发时将收到通知' 
+                {subscriptions.length === 0
+                  ? '在股票详情页创建监控订阅，当指标触发时将收到通知'
                   : '尝试调整筛选条件或搜索关键词'}
               </p>
               <Link to="/">
@@ -363,7 +278,7 @@ export function Subscriptions() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <Link 
+                        <Link
                           to={`/stock/${sub.stockCode}`}
                           className="font-semibold hover:underline"
                         >
@@ -385,7 +300,7 @@ export function Subscriptions() {
                           </Badge>
                         )}
                       </div>
-                      
+
                       <div className="text-sm text-muted-foreground space-y-1">
                         <div className="font-medium">
                           监控条件: {indicatorLabels[sub.indicator]} {conditionLabels[sub.condition]} {sub.value}
@@ -400,7 +315,7 @@ export function Subscriptions() {
                         )}
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                       <Switch
                         checked={sub.isActive}
@@ -429,7 +344,7 @@ export function Subscriptions() {
             </div>
           )}
         </TabsContent>
-        
+
         <TabsContent value="notifications" className="space-y-4">
           {notifications.length === 0 ? (
             <Card className="p-12 text-center">
@@ -463,17 +378,17 @@ export function Subscriptions() {
                   清空通知
                 </Button>
               </div>
-              
+
               <div className="grid grid-cols-1 gap-4">
                 {notifications.map((notification) => (
-                  <Card 
-                    key={notification.id} 
+                  <Card
+                    key={notification.id}
                     className={`p-4 transition-all ${notification.read ? 'bg-muted/50' : 'bg-primary/10 border-primary/30 shadow-sm'}`}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
-                          <Link 
+                          <Link
                             to={`/stock/${notification.stockCode}`}
                             className="font-semibold hover:underline"
                           >
@@ -484,16 +399,16 @@ export function Subscriptions() {
                             <Badge variant="destructive">新</Badge>
                           )}
                         </div>
-                        
+
                         <p className="text-sm text-foreground mb-2">
                           {notification.message}
                         </p>
-                        
+
                         <div className="text-xs text-muted-foreground">
                           {new Date(notification.timestamp).toLocaleString('zh-CN')}
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center gap-2">
                         {!notification.read && (
                           <Button
@@ -522,7 +437,7 @@ export function Subscriptions() {
           )}
         </TabsContent>
       </Tabs>
-      
+
       {editingId && (
         <EditSubscriptionDialog
           subscriptionId={editingId}

@@ -100,7 +100,7 @@ export function detectGoldenCrossEvents(
     if (prevShortMA <= prevLongMA && shortMA > longMA) {
       events.push({
         date: priceHistory[i].date,
-        time: '16:00',
+        time: '收盘',
         shortMA: parseFloat(shortMA.toFixed(2)),
         longMA: parseFloat(longMA.toFixed(2)),
         close: priceHistory[i].close,
