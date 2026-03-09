@@ -121,7 +121,7 @@ export function StockDetail() {
 
   if (loading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4" data-testid="stock-detail-loading">
         <div className="h-10 w-28 rounded-md bg-muted animate-pulse" />
         <Card className="p-6">
           <div className="space-y-4">
@@ -139,7 +139,7 @@ export function StockDetail() {
 
   if (notFound || !stock || !indicators) {
     return (
-      <div className="text-center py-20">
+      <div className="text-center py-20" data-testid="stock-not-found">
         <h2 className="text-2xl font-bold mb-4">股票不存在</h2>
         <Link to="/">
           <Button>返回首页</Button>
@@ -184,25 +184,25 @@ export function StockDetail() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="stock-detail-page">
       <Link to="/">
-        <Button variant="ghost" className="gap-2">
+        <Button variant="ghost" className="gap-2" data-testid="back-to-home">
           <ArrowLeft className="h-4 w-4" />
           返回
         </Button>
       </Link>
 
-      <Card className="p-6">
+      <Card className="p-6" data-testid="stock-summary-card">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
-              <h1 className="text-3xl font-bold">{stock.nameCn}</h1>
+              <h1 className="text-3xl font-bold" data-testid="stock-name">{stock.nameCn}</h1>
               <Badge variant="outline">{stock.sector}</Badge>
             </div>
             <p className="text-muted-foreground mb-4">{stock.code}</p>
 
             <div className="flex items-baseline gap-4">
-              <span className="text-4xl font-bold">HK${stock.price.toFixed(2)}</span>
+              <span className="text-4xl font-bold" data-testid="stock-price">HK${stock.price.toFixed(2)}</span>
               <div className={`flex items-center gap-2 text-xl ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
                 {isPositive ? <TrendingUp className="h-6 w-6" /> : <TrendingDown className="h-6 w-6" />}
                 <span>{isPositive ? '+' : ''}{stock.change.toFixed(2)}</span>
@@ -264,13 +264,13 @@ export function StockDetail() {
 
       <Tabs defaultValue="chart" className="space-y-4">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="chart">价格走势</TabsTrigger>
-          <TabsTrigger value="indicators">技术指标</TabsTrigger>
-          <TabsTrigger value="fundamentals">基本面</TabsTrigger>
+          <TabsTrigger value="chart" data-testid="detail-tab-chart">价格走势</TabsTrigger>
+          <TabsTrigger value="indicators" data-testid="detail-tab-indicators">技术指标</TabsTrigger>
+          <TabsTrigger value="fundamentals" data-testid="detail-tab-fundamentals">基本面</TabsTrigger>
         </TabsList>
 
         <TabsContent value="chart">
-          <Card className="p-6">
+          <Card className="p-6" data-testid="chart-card">
             <h3 className="text-lg font-semibold mb-4">90日价格走势</h3>
             <ResponsiveContainer width="100%" height={400}>
               <AreaChart data={priceHistory}>
@@ -306,7 +306,7 @@ export function StockDetail() {
 
         <TabsContent value="indicators">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card className="p-6">
+            <Card className="p-6" data-testid="indicators-card">
               <h3 className="text-lg font-semibold mb-4">技术指标</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b">
@@ -332,7 +332,7 @@ export function StockDetail() {
               </div>
             </Card>
 
-            <Card className="p-6">
+            <Card className="p-6" data-testid="moving-average-card">
               <h3 className="text-lg font-semibold mb-4">移动平均线</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b">
@@ -354,7 +354,7 @@ export function StockDetail() {
               </div>
             </Card>
 
-            <Card className="p-6 md:col-span-2">
+            <Card className="p-6 md:col-span-2" data-testid="golden-cross-card">
               <h3 className="text-lg font-semibold mb-4">黄金交叉记录</h3>
               <Tabs defaultValue={MA_PAIRS[0].key} className="w-full">
                 <TabsList className="grid w-full grid-cols-3">

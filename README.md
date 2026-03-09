@@ -10,6 +10,26 @@ Run `npm run api` to start backend API (default: `http://127.0.0.1:4000`).
 
 Run `npm run dev` to start frontend dev server.
 
+## QA / Tests
+
+Run API gate tests:
+
+- `npm run test:api`
+
+Run E2E gate tests:
+
+- `npm run test:e2e`
+
+Run full gate suite:
+
+- `npm test`
+
+Run live smoke checks (real external data source):
+
+- `npm run test:live`
+
+Generated reports and artifacts are stored under `test-results/`.
+
 ## Data source
 
 The project now uses real HK market data (Tencent quotes + Yahoo chart/indicator data). Mock/local stock data paths have been removed from runtime.

@@ -161,19 +161,19 @@ export function Home() {
   const stats = useMemo(() => marketStats, [marketStats]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="home-page">
       <div>
         <h2 className="text-3xl font-bold mb-4">港股市场</h2>
         <div className="grid grid-cols-3 gap-4">
-          <Card className="p-4">
+          <Card className="p-4" data-testid="stat-rising">
             <div className="text-sm text-muted-foreground mb-1">上涨</div>
             <div className="text-2xl font-bold text-green-600">{stats.rising}</div>
           </Card>
-          <Card className="p-4">
+          <Card className="p-4" data-testid="stat-falling">
             <div className="text-sm text-muted-foreground mb-1">下跌</div>
             <div className="text-2xl font-bold text-red-600">{stats.falling}</div>
           </Card>
-          <Card className="p-4">
+          <Card className="p-4" data-testid="stat-unchanged">
             <div className="text-sm text-muted-foreground mb-1">平盘</div>
             <div className="text-2xl font-bold text-muted-foreground">{stats.unchanged}</div>
           </Card>
@@ -182,10 +182,10 @@ export function Home() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="all">全部股票</TabsTrigger>
-          <TabsTrigger value="popular">热门</TabsTrigger>
-          <TabsTrigger value="gainers">涨幅榜</TabsTrigger>
-          <TabsTrigger value="losers">跌幅榜</TabsTrigger>
+          <TabsTrigger value="all" data-testid="tab-all">全部股票</TabsTrigger>
+          <TabsTrigger value="popular" data-testid="tab-popular">热门</TabsTrigger>
+          <TabsTrigger value="gainers" data-testid="tab-gainers">涨幅榜</TabsTrigger>
+          <TabsTrigger value="losers" data-testid="tab-losers">跌幅榜</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="space-y-4">
@@ -198,11 +198,12 @@ export function Home() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
+                data-testid="search-input"
               />
             </div>
 
             <Select value={sectorFilter} onValueChange={setSectorFilter}>
-              <SelectTrigger className="w-full md:w-[180px]">
+              <SelectTrigger className="w-full md:w-[180px]" data-testid="sector-select-trigger">
                 <SelectValue placeholder="选择板块" />
               </SelectTrigger>
               <SelectContent>
@@ -214,7 +215,7 @@ export function Home() {
             </Select>
 
             <Select value={sortBy} onValueChange={(value: 'code' | 'change' | 'volume' | 'marketCap' | 'lastGoldenCross') => setSortBy(value)}>
-              <SelectTrigger className="w-full md:w-[180px]">
+              <SelectTrigger className="w-full md:w-[180px]" data-testid="sort-select-trigger">
                 <SelectValue placeholder="排序方式" />
               </SelectTrigger>
               <SelectContent>
@@ -227,7 +228,7 @@ export function Home() {
             </Select>
 
             <Select value={goldenCrossPair} onValueChange={handleGoldenCrossPairChange}>
-              <SelectTrigger className="w-full md:w-[140px]">
+              <SelectTrigger className="w-full md:w-[140px]" data-testid="pair-select-trigger">
                 <SelectValue placeholder="金叉均线" />
               </SelectTrigger>
               <SelectContent>
@@ -242,6 +243,7 @@ export function Home() {
                 variant={viewMode === 'table' ? 'default' : 'outline'}
                 size="icon"
                 onClick={() => setViewMode('table')}
+                data-testid="view-table"
               >
                 <List className="h-5 w-5" />
               </Button>
@@ -249,13 +251,14 @@ export function Home() {
                 variant={viewMode === 'grid' ? 'default' : 'outline'}
                 size="icon"
                 onClick={() => setViewMode('grid')}
+                data-testid="view-grid"
               >
                 <Grid className="h-5 w-5" />
               </Button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="total-count">
             <AlertCircle className="h-4 w-4" />
             <span>共找到 {totalStocks} 只股票</span>
           </div>
@@ -276,6 +279,7 @@ export function Home() {
                 variant="outline"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
+                data-testid="pagination-prev"
               >
                 上一页
               </Button>
@@ -288,6 +292,7 @@ export function Home() {
                 variant="outline"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
+                data-testid="pagination-next"
               >
                 下一页
               </Button>

@@ -45,7 +45,7 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
   };
   
   return (
-    <div className="rounded-md border overflow-hidden">
+    <div className="rounded-md border overflow-hidden" data-testid="stock-table">
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
@@ -65,7 +65,7 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
             const isFav = favorites.has(stock.code);
             
             return (
-              <TableRow key={stock.id} className="cursor-pointer hover:bg-muted/50">
+              <TableRow key={stock.id} className="cursor-pointer hover:bg-muted/50" data-testid={`stock-row-${stock.code}`}>
                 <TableCell>
                   <Button
                     variant="ghost"
@@ -83,7 +83,7 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
                   </Button>
                 </TableCell>
                 <TableCell>
-                  <Link to={`/stock/${stock.code}`} className="font-medium hover:underline">
+                  <Link to={`/stock/${stock.code}`} className="font-medium hover:underline" data-testid={`stock-link-${stock.code}`}>
                     {stock.code}
                   </Link>
                 </TableCell>
