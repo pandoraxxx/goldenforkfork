@@ -2,14 +2,7 @@ import http from 'node:http';
 import { URL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { initDb, saveDb } from './db.js';
-import {
-  generateStocks,
-  generateIndicators,
-  generatePriceHistoryByCode,
-  detectGoldenCrossEvents,
-  MA_PAIRS,
-  popularStocks,
-} from './mockData.js';
+import { detectGoldenCrossEvents, MA_PAIRS, popularStocks } from './market.js';
 import {
   getLiveQuoteByCode,
   getLiveQuotes,
@@ -21,34 +14,12 @@ import { getTencentQuotes, getTencentUniverseCodes } from './providers/tencentQu
 const HOST = process.env.API_HOST || '127.0.0.1';
 const PORT = Number(process.env.API_PORT || 4000);
 
-const stocks = generateStocks(3000);
-const stockMap = new Map(stocks.map((stock) => [stock.code, stock]));
-const sectors = [...new Set(stocks.map((stock) => stock.sector))].sort();
 let db = initDb();
 let tencentUniverseSet = null;
 let tencentUniverseLoading = null;
 let marketStatsCache = { at: 0, stats: null };
 let realtimeStocksCache = { at: 0, items: null };
-
-function mergeStockWithLive(base, live) {
-  if (!live) return base;
-  return {
-    ...base,
-    name: live.name || base.name,
-    nameCn: live.nameCn || base.nameCn,
-    price: typeof live.price === 'number' ? live.price : base.price,
-    change: typeof live.change === 'number' ? live.change : base.change,
-    changePercent: typeof live.changePercent === 'number' ? live.changePercent : base.changePercent,
-    volume: typeof live.volume === 'number' ? live.volume : base.volume,
-    marketCap: typeof live.marketCap === 'number' && live.marketCap > 0 ? live.marketCap : base.marketCap,
-    pe: typeof live.pe === 'number' && live.pe > 0 ? live.pe : base.pe,
-    pb: typeof live.pb === 'number' && live.pb > 0 ? live.pb : base.pb,
-    dividendYield:
-      typeof live.dividendYield === 'number' && live.dividendYield > 0 ? live.dividendYield : base.dividendYield,
-    high52w: typeof live.high52w === 'number' && live.high52w > 0 ? live.high52w : base.high52w,
-    low52w: typeof live.low52w === 'number' && live.low52w > 0 ? live.low52w : base.low52w,
-  };
-}
+const goldenCrossCache = new Map();
 
 async function ensureTencentUniverseSet() {
   if (tencentUniverseSet) return tencentUniverseSet;
@@ -106,16 +77,35 @@ async function getRealtimeUniverseStocks() {
   }
 
   const universe = await ensureTencentUniverseSet();
-  const baseUniverse = stocks.filter((s) => universe.has(s.code));
-  const liveRows = await getTencentQuotes(baseUniverse.map((s) => s.code));
-  const liveMap = new Map(liveRows.map((row) => [row.code, row]));
-
-  const items = baseUniverse
-    .filter((stock) => liveMap.has(stock.code))
-    .map((stock) => mergeStockWithLive(stock, liveMap.get(stock.code)));
+  const liveRows = await getTencentQuotes([...universe]);
+  const items = liveRows.map((row) => ({
+    id: row.code,
+    code: row.code,
+    name: row.name || `HK ${row.code}`,
+    nameCn: row.nameCn || row.name || `HK ${row.code}`,
+    price: row.price,
+    change: row.change,
+    changePercent: row.changePercent,
+    volume: row.volume,
+    marketCap: row.marketCap,
+    pe: row.pe,
+    pb: row.pb,
+    dividendYield: row.dividendYield,
+    high52w: row.high52w,
+    low52w: row.low52w,
+    sector: '',
+    lastGoldenCrossByPair: { '5-20': null, '20-50': null, '20-60': null },
+    lastGoldenCross: null,
+  }));
 
   realtimeStocksCache = { at: now, items };
   return items;
+}
+
+async function isValidStockCode(code) {
+  if (!/^\d{5}$/.test(String(code || ''))) return false;
+  const universe = await ensureTencentUniverseSet();
+  return universe.has(code);
 }
 
 function applySearchSectorFilters(list, searchParams) {
@@ -132,8 +122,9 @@ function applySearchSectorFilters(list, searchParams) {
     );
   }
 
+  // No real sector source currently; ignore sector filter unless "all".
   if (sector !== 'all') {
-    result = result.filter((s) => s.sector === sector);
+    result = [];
   }
 
   return result;
@@ -184,15 +175,14 @@ function normalizeSubscription(input) {
   if (!input || typeof input !== 'object') return { ok: false, message: '请求体无效' };
   if (!indicators.has(input.indicator)) return { ok: false, message: 'indicator 无效' };
   if (!conditions.has(input.condition)) return { ok: false, message: 'condition 无效' };
-  if (typeof input.stockCode !== 'string' || !stockMap.has(input.stockCode)) return { ok: false, message: 'stockCode 无效' };
+  if (typeof input.stockCode !== 'string' || !/^\d{5}$/.test(input.stockCode)) return { ok: false, message: 'stockCode 无效' };
   if (typeof input.value !== 'number' || Number.isNaN(input.value)) return { ok: false, message: 'value 必须是数字' };
 
-  const stock = stockMap.get(input.stockCode);
   return {
     ok: true,
     value: {
       stockCode: input.stockCode,
-      stockName: input.stockName || stock.nameCn,
+      stockName: input.stockName || input.stockCode,
       indicator: input.indicator,
       condition: input.condition,
       value: input.value,
@@ -201,33 +191,71 @@ function normalizeSubscription(input) {
   };
 }
 
-function indicatorValue(stock, indicator) {
-  if (indicator === 'price') return stock.price;
-  if (indicator === 'volume') return stock.volume;
-  if (indicator === 'pe') return stock.pe;
-  if (indicator === 'pb') return stock.pb;
-  const indicators = generateIndicators(stock);
-  if (indicator === 'rsi') return indicators.rsi;
-  if (indicator === 'macd') return indicators.macd;
-  return null;
-}
-
 function conditionPassed(current, condition, target) {
   if (condition === 'above') return current > target;
   if (condition === 'below') return current < target;
   return Math.abs(current - target) < 0.01;
 }
 
-function checkSubscriptions() {
+async function getGoldenCrossByPair(code) {
+  const cached = goldenCrossCache.get(code);
+  const now = Date.now();
+  if (cached && now - cached.at < 10 * 60_000) {
+    return cached.value;
+  }
+
+  const history = await getLivePriceHistory(code, '6mo', '1d');
+  const value = {};
+  for (const pair of MA_PAIRS) {
+    const events = detectGoldenCrossEvents(history, pair.short, pair.long, pair.key);
+    value[pair.key] = events.length > 0 ? events[events.length - 1] : null;
+  }
+  goldenCrossCache.set(code, { at: now, value });
+  return value;
+}
+
+async function enrichStocksWithGoldenCross(items) {
+  const out = [];
+  for (const item of items) {
+    try {
+      const byPair = await getGoldenCrossByPair(item.code);
+      out.push({
+        ...item,
+        lastGoldenCrossByPair: byPair,
+        lastGoldenCross: byPair['5-20'] || null,
+      });
+    } catch {
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+async function checkSubscriptions() {
   const now = Date.now();
   const created = [];
+  const active = db.subscriptions.filter((sub) => sub.isActive);
+  const uniqueCodes = [...new Set(active.map((sub) => sub.stockCode))];
+  const quoteRows = await getTencentQuotes(uniqueCodes);
+  const quoteMap = new Map(quoteRows.map((q) => [q.code, q]));
 
-  for (const sub of db.subscriptions) {
-    if (!sub.isActive) continue;
-    const stock = stockMap.get(sub.stockCode);
-    if (!stock) continue;
+  for (const sub of active) {
+    const quote = quoteMap.get(sub.stockCode);
+    if (!quote) continue;
 
-    const current = indicatorValue(stock, sub.indicator);
+    let current = null;
+    if (sub.indicator === 'price') current = quote.price;
+    if (sub.indicator === 'volume') current = quote.volume;
+    if (sub.indicator === 'pe') current = quote.pe;
+    if (sub.indicator === 'pb') current = quote.pb;
+    if (sub.indicator === 'rsi' || sub.indicator === 'macd') {
+      try {
+        const ind = await getLiveIndicators(sub.stockCode);
+        current = sub.indicator === 'rsi' ? ind.rsi : ind.macd;
+      } catch {
+        current = null;
+      }
+    }
     if (typeof current !== 'number') continue;
 
     if (!conditionPassed(current, sub.condition, sub.value)) continue;
@@ -265,50 +293,6 @@ function checkSubscriptions() {
   return created;
 }
 
-function filteredStocks(query) {
-  const search = (query.get('search') || '').toLowerCase().trim();
-  const sector = query.get('sector') || 'all';
-  const tab = query.get('tab') || 'all';
-  const sortBy = query.get('sortBy') || 'volume';
-  const pair = query.get('pair') || db.preferences.goldenCrossPair || '5-20';
-
-  let list = stocks;
-
-  if (search) {
-    list = list.filter((s) =>
-      s.code.includes(search) || s.name.toLowerCase().includes(search) || s.nameCn.includes(search),
-    );
-  }
-
-  if (sector !== 'all') {
-    list = list.filter((s) => s.sector === sector);
-  }
-
-  if (tab === 'popular') {
-    list = list.filter((s) => popularStocks.includes(s.code));
-  } else if (tab === 'gainers') {
-    list = list.filter((s) => s.change > 0).sort((a, b) => b.changePercent - a.changePercent).slice(0, 10);
-  } else if (tab === 'losers') {
-    list = list.filter((s) => s.change < 0).sort((a, b) => a.changePercent - b.changePercent).slice(0, 10);
-  }
-
-  if (tab === 'all') {
-    list = [...list].sort((a, b) => {
-      if (sortBy === 'change') return b.changePercent - a.changePercent;
-      if (sortBy === 'marketCap') return b.marketCap - a.marketCap;
-      if (sortBy === 'code') return a.code.localeCompare(b.code);
-      if (sortBy === 'lastGoldenCross') {
-        const aDate = a.lastGoldenCrossByPair[pair]?.date ? new Date(a.lastGoldenCrossByPair[pair].date).getTime() : 0;
-        const bDate = b.lastGoldenCrossByPair[pair]?.date ? new Date(b.lastGoldenCrossByPair[pair].date).getTime() : 0;
-        return bDate - aDate;
-      }
-      return b.volume - a.volume;
-    });
-  }
-
-  return list;
-}
-
 const server = http.createServer(async (req, res) => {
   if (!req.url || !req.method) {
     sendJson(res, 400, { error: 'Bad Request' });
@@ -330,7 +314,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/api/meta') {
-      sendJson(res, 200, { sectors, maPairs: MA_PAIRS, popularStocks });
+      sendJson(res, 200, { sectors: [], maPairs: MA_PAIRS, popularStocks });
       return;
     }
 
@@ -403,13 +387,11 @@ const server = http.createServer(async (req, res) => {
       } else if (tab === 'gainers') {
         ranked = [...realtime]
           .filter((s) => s.changePercent > 0)
-          .sort((a, b) => b.changePercent - a.changePercent)
-          .slice(0, 10);
+          .sort((a, b) => b.changePercent - a.changePercent);
       } else if (tab === 'losers') {
         ranked = [...realtime]
           .filter((s) => s.changePercent < 0)
-          .sort((a, b) => a.changePercent - b.changePercent)
-          .slice(0, 10);
+          .sort((a, b) => a.changePercent - b.changePercent);
       } else {
         ranked = [...realtime].sort((a, b) => {
           if (sortBy === 'change') return b.changePercent - a.changePercent;
@@ -426,9 +408,10 @@ const server = http.createServer(async (req, res) => {
       }
 
       const items = ranked.slice(start, start + pageSize);
+      const enrichedItems = await enrichStocksWithGoldenCross(items);
 
       sendJson(res, 200, {
-        items,
+        items: enrichedItems,
         total: ranked.length,
         page,
         pageSize,
@@ -438,53 +421,75 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && /^\/api\/stocks\/\d{5}$/.test(pathname)) {
       const code = pathname.split('/').pop();
-      const stock = stockMap.get(code);
-      if (!stock) {
+      const rows = await getTencentQuotes([code]);
+      if (!rows[0]) {
         sendJson(res, 404, { error: '股票不存在' });
         return;
       }
       try {
-        const live = await getLiveQuoteByCode(code);
-        sendJson(res, 200, mergeStockWithLive(stock, live));
+        const base = {
+          id: rows[0].code,
+          code: rows[0].code,
+          name: rows[0].name || `HK ${rows[0].code}`,
+          nameCn: rows[0].nameCn || rows[0].name || `HK ${rows[0].code}`,
+          price: rows[0].price,
+          change: rows[0].change,
+          changePercent: rows[0].changePercent,
+          volume: rows[0].volume,
+          marketCap: rows[0].marketCap,
+          pe: rows[0].pe,
+          pb: rows[0].pb,
+          dividendYield: rows[0].dividendYield,
+          high52w: rows[0].high52w,
+          low52w: rows[0].low52w,
+          sector: '',
+          lastGoldenCrossByPair: { '5-20': null, '20-50': null, '20-60': null },
+          lastGoldenCross: null,
+        };
+        const [enriched] = await enrichStocksWithGoldenCross([base]);
+        sendJson(res, 200, enriched);
       } catch {
-        sendJson(res, 200, stock);
+        sendJson(res, 200, rows[0]);
       }
       return;
     }
 
     if (req.method === 'GET' && /^\/api\/stocks\/\d{5}\/indicators$/.test(pathname)) {
       const code = pathname.split('/')[3];
-      const stock = stockMap.get(code);
-      if (!stock) {
+      const rows = await getTencentQuotes([code]);
+      if (!rows[0]) {
         sendJson(res, 404, { error: '股票不存在' });
         return;
       }
-      sendJson(res, 200, generateIndicators(stock));
+      const indicators = await getLiveIndicators(code);
+      sendJson(res, 200, indicators);
       return;
     }
 
     if (req.method === 'GET' && /^\/api\/stocks\/\d{5}\/price-history$/.test(pathname)) {
       const code = pathname.split('/')[3];
-      const stock = stockMap.get(code);
-      if (!stock) {
+      const rows = await getTencentQuotes([code]);
+      if (!rows[0]) {
         sendJson(res, 404, { error: '股票不存在' });
         return;
       }
       const days = Math.min(365, Math.max(5, Number(searchParams.get('days') || 90)));
-      sendJson(res, 200, generatePriceHistoryByCode(code, days));
+      const range = days <= 30 ? '1mo' : days <= 90 ? '3mo' : days <= 180 ? '6mo' : '1y';
+      const history = await getLivePriceHistory(code, range, '1d');
+      sendJson(res, 200, history);
       return;
     }
 
     if (req.method === 'GET' && /^\/api\/stocks\/\d{5}\/golden-cross$/.test(pathname)) {
       const code = pathname.split('/')[3];
-      const stock = stockMap.get(code);
-      if (!stock) {
+      const rows = await getTencentQuotes([code]);
+      if (!rows[0]) {
         sendJson(res, 404, { error: '股票不存在' });
         return;
       }
       const pairKey = searchParams.get('pair') || db.preferences.goldenCrossPair || '5-20';
       const pair = MA_PAIRS.find((p) => p.key === pairKey) || MA_PAIRS[0];
-      const history = generatePriceHistoryByCode(code, 90);
+      const history = await getLivePriceHistory(code, '6mo', '1d');
       const events = detectGoldenCrossEvents(history, pair.short, pair.long, pair.key);
       sendJson(res, 200, { pair, events });
       return;
@@ -498,7 +503,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/favorites') {
       const body = await parseBody(req);
       const code = typeof body.stockCode === 'string' ? body.stockCode : '';
-      if (!stockMap.has(code)) {
+      if (!(await isValidStockCode(code))) {
         sendJson(res, 400, { error: 'stockCode 无效' });
         return;
       }
@@ -530,9 +535,15 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: normalized.message });
         return;
       }
+      if (!(await isValidStockCode(normalized.value.stockCode))) {
+        sendJson(res, 400, { error: 'stockCode 无效' });
+        return;
+      }
+      const subQuote = (await getTencentQuotes([normalized.value.stockCode]))[0];
       const item = {
         id: randomUUID(),
         ...normalized.value,
+        stockName: normalized.value.stockName || subQuote?.nameCn || subQuote?.name || normalized.value.stockCode,
         createdAt: new Date().toISOString(),
       };
       db.subscriptions.push(item);
@@ -560,9 +571,15 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: normalized.message });
         return;
       }
+      if (!(await isValidStockCode(normalized.value.stockCode))) {
+        sendJson(res, 400, { error: 'stockCode 无效' });
+        return;
+      }
+      const subQuote = (await getTencentQuotes([normalized.value.stockCode]))[0];
       db.subscriptions[idx] = {
         ...db.subscriptions[idx],
         ...normalized.value,
+        stockName: normalized.value.stockName || subQuote?.nameCn || subQuote?.name || normalized.value.stockCode,
       };
       persist();
       sendJson(res, 200, db.subscriptions[idx]);
@@ -591,7 +608,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && pathname === '/api/subscriptions/check') {
-      const notifications = checkSubscriptions();
+      const notifications = await checkSubscriptions();
       sendJson(res, 200, { count: notifications.length, notifications });
       return;
     }

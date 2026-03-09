@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { type GoldenCrossPairKey } from '../utils/mockData';
+import { type GoldenCrossPairKey } from '../utils/market';
 import { getFavorites, getGoldenCrossPairPreference, getStock, Stock } from '../api/client';
 import { StockCard } from '../components/StockCard';
 import { StockTable } from '../components/StockTable';

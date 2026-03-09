@@ -1,4 +1,4 @@
-import { formatGoldenCrossDate, MA_PAIRS, type GoldenCrossPairKey } from '../utils/mockData';
+import { formatGoldenCrossDate, MA_PAIRS, type GoldenCrossPairKey } from '../utils/market';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Link } from 'react-router';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';

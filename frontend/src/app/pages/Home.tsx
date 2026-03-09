@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MA_PAIRS, type GoldenCrossPairKey } from '../utils/mockData';
+import { MA_PAIRS, type GoldenCrossPairKey } from '../utils/market';
 import {
   getGoldenCrossPairPreference,
   getMarketStats,
@@ -115,7 +115,7 @@ export function Home() {
   useEffect(() => {
     let alive = true;
 
-    async function loadRankings() {
+    const loadRankings = async () => {
       try {
         const [popular, gainers, losers] = await Promise.all([
           getStocks({ tab: 'popular', page: 1, pageSize: 20 }),
@@ -133,11 +133,13 @@ export function Home() {
           setTopLosers([]);
         }
       }
-    }
+    };
 
     loadRankings();
+    const interval = setInterval(loadRankings, 60_000);
     return () => {
       alive = false;
+      clearInterval(interval);
     };
   }, []);
 

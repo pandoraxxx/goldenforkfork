@@ -1,4 +1,4 @@
-import { formatGoldenCrossDate, type GoldenCrossPairKey } from '../utils/mockData';
+import { formatGoldenCrossDate, type GoldenCrossPairKey } from '../utils/market';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';

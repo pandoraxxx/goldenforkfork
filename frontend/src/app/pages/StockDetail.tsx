@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router';
-import { MA_PAIRS } from '../utils/mockData';
+import { MA_PAIRS } from '../utils/market';
 import {
   addFavorite,
   getFavorites,
