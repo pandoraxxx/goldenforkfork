@@ -47,7 +47,7 @@ export function Subscriptions() {
   useEffect(() => {
     loadData();
 
-    const interval = setInterval(loadData, 3000);
+    const interval = setInterval(loadData, 15000);
     const checkInterval = setInterval(async () => {
       try {
         const result = await checkSubscriptions();
@@ -60,7 +60,7 @@ export function Subscriptions() {
       } catch {
         // ignore
       }
-    }, 10000);
+    }, 30000);
 
     return () => {
       clearInterval(interval);

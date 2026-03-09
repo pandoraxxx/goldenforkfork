@@ -214,6 +214,45 @@ async function getGoldenCrossByPair(code) {
   return value;
 }
 
+function getCachedGoldenCrossByPair(code) {
+  const cached = goldenCrossCache.get(code);
+  if (!cached) return null;
+  return cached.value;
+}
+
+async function warmupGoldenCrossCache(codes, budgetMs = 3500, concurrency = 10) {
+  const start = Date.now();
+  const queue = [];
+  for (const code of codes) {
+    if (!getCachedGoldenCrossByPair(code)) {
+      queue.push(code);
+    }
+  }
+  if (queue.length === 0) return;
+
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    while (index < queue.length && Date.now() - start < budgetMs) {
+      const code = queue[index];
+      index += 1;
+      try {
+        await getGoldenCrossByPair(code);
+      } catch {
+        // ignore single symbol failure
+      }
+    }
+  });
+  await Promise.all(workers);
+}
+
+function goldenCrossDateMillisByPair(stock, pairKey) {
+  const byPair = stock.lastGoldenCrossByPair || {};
+  const event = byPair[pairKey];
+  if (!event?.date) return 0;
+  const ts = new Date(event.date).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
 async function enrichStocksWithGoldenCross(items) {
   const out = [];
   for (const item of items) {
@@ -393,14 +432,26 @@ const server = http.createServer(async (req, res) => {
           .filter((s) => s.changePercent < 0)
           .sort((a, b) => a.changePercent - b.changePercent);
       } else {
-        ranked = [...realtime].sort((a, b) => {
+        if (sortBy === 'lastGoldenCross') {
+          await warmupGoldenCrossCache(realtime.map((s) => s.code));
+          ranked = realtime.map((s) => {
+            const byPair = getCachedGoldenCrossByPair(s.code);
+            if (!byPair) return s;
+            return {
+              ...s,
+              lastGoldenCrossByPair: byPair,
+              lastGoldenCross: byPair['5-20'] || null,
+            };
+          });
+        }
+        ranked = [...ranked].sort((a, b) => {
           if (sortBy === 'change') return b.changePercent - a.changePercent;
           if (sortBy === 'volume') return b.volume - a.volume;
           if (sortBy === 'marketCap') return b.marketCap - a.marketCap;
           if (sortBy === 'code') return a.code.localeCompare(b.code);
           if (sortBy === 'lastGoldenCross') {
-            const aDate = a.lastGoldenCrossByPair[pair]?.date ? new Date(a.lastGoldenCrossByPair[pair].date).getTime() : 0;
-            const bDate = b.lastGoldenCrossByPair[pair]?.date ? new Date(b.lastGoldenCrossByPair[pair].date).getTime() : 0;
+            const aDate = goldenCrossDateMillisByPair(a, pair);
+            const bDate = goldenCrossDateMillisByPair(b, pair);
             return bDate - aDate;
           }
           return b.volume - a.volume;

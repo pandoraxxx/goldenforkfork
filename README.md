@@ -1,27 +1,34 @@
+# Stock Alarm Platform
 
-  # Stock Alarm Platform
+This is a code bundle for Stock Alarm Platform. The original project is available at https://www.figma.com/design/3hbfNSKsLT4gjbGVpCNtpa/Stock-Alarm-Platform.
 
-  This is a code bundle for Stock Alarm Platform. The original project is available at https://www.figma.com/design/3hbfNSKsLT4gjbGVpCNtpa/Stock-Alarm-Platform.
+## Running the code
 
-  ## Running the code
+Run `npm i` to install dependencies.
 
-  Run `npm i` to install the dependencies.
+Run `npm run api` to start backend API (default: `http://127.0.0.1:4000`).
 
-  Run `npm run dev` to start the development server.
+Run `npm run dev` to start frontend dev server.
 
-  ## Backend API (with live HK data)
+## Data source
 
-  Run `npm run api` to start the backend server (default: `http://127.0.0.1:4000`).
+The project now uses real HK market data (Tencent quotes + Yahoo chart/indicator data). Mock/local stock data paths have been removed from runtime.
 
-  Main live endpoints:
+## Main API
 
-  - `GET /api/live/stocks?codes=00700,00005,00941` (real-time quotes)
-  - `GET /api/live/stocks/:code` (single quote)
-  - `GET /api/live/stocks/:code/price-history?range=3mo&interval=1d`
-  - `GET /api/live/stocks/:code/indicators`
-  - `GET /api/live/stocks/:code/golden-cross?pair=5-20`
+- `GET /api/health`
+- `GET /api/meta`
+- `GET /api/market-stats`
+- `GET /api/stocks?page=1&pageSize=20`
+- `GET /api/stocks/:code`
+- `GET /api/stocks/:code/price-history?days=90`
+- `GET /api/stocks/:code/indicators`
+- `GET /api/stocks/:code/golden-cross?pair=5-20`
+- `GET /api/live/stocks?codes=00700,00005,00941`
 
-  Existing mock/local business endpoints are still available under `/api/*`:
+Business endpoints (all backed by backend storage, not localStorage):
 
-  - stocks / subscriptions / notifications / favorites / preferences
-  
+- `favorites`
+- `subscriptions`
+- `notifications`
+- `preferences`

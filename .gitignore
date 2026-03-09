@@ -1,1 +1,5 @@
 node_modules
+dist
+frontend/dist
+backend/data/db.json
+backend/data/live_universe_cache.json

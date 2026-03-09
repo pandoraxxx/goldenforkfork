@@ -28,7 +28,7 @@ export function ActiveSubscriptionsCard({ stockCode }: ActiveSubscriptionsCardPr
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(refresh, 3000);
+    const interval = setInterval(refresh, 15000);
     return () => clearInterval(interval);
   }, [stockCode]);
 

@@ -4,7 +4,6 @@ import { MA_PAIRS } from '../utils/market';
 import {
   addFavorite,
   getFavorites,
-  getLiveStock,
   getStock,
   getStockGoldenCross,
   getStockIndicators,
@@ -44,34 +43,23 @@ export function StockDetail() {
 
     async function load() {
       try {
-        const [baseStock, liveStock, liveIndicators, history, favorites, ...goldenList] = await Promise.all([
+        const [baseStock, indicatorsData, history, favorites, ...goldenList] = await Promise.all([
           getStock(code),
-          getLiveStock(code).catch(() => ({})),
-          getStockIndicators(code, true),
-          getStockPriceHistory(code, { live: true, range: '3mo', interval: '1d' }),
+          getStockIndicators(code),
+          getStockPriceHistory(code, { days: 90 }),
           getFavorites(),
-          ...MA_PAIRS.map((pair) => getStockGoldenCross(code, pair.key, true)),
+          ...MA_PAIRS.map((pair) => getStockGoldenCross(code, pair.key)),
         ]);
 
         if (!alive) return;
-
-        const mergedStock: Stock = {
-          ...baseStock,
-          ...liveStock,
-          id: baseStock.id,
-          code: baseStock.code,
-          sector: baseStock.sector,
-          lastGoldenCrossByPair: baseStock.lastGoldenCrossByPair,
-          lastGoldenCross: baseStock.lastGoldenCross,
-        };
 
         const byPair: Record<string, GoldenCrossEvent[]> = {};
         MA_PAIRS.forEach((pair, idx) => {
           byPair[pair.key] = goldenList[idx].events || [];
         });
 
-        setStock(mergedStock);
-        setIndicators(liveIndicators);
+        setStock(baseStock);
+        setIndicators(indicatorsData);
         setPriceHistory(history);
         setGoldenCrossEventsByPair(byPair);
         setFavorite(favorites.includes(code));

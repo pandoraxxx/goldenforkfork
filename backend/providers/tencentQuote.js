@@ -4,6 +4,7 @@ import path from 'node:path';
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
 const UNIVERSE_CACHE_PATH = path.resolve(process.cwd(), 'backend/data/live_universe_cache.json');
 const UNIVERSE_TTL_MS = 12 * 60 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 function normalizeCode(code) {
   return String(parseInt(String(code), 10) || 0).padStart(5, '0');
@@ -116,12 +117,22 @@ export async function getTencentQuotes(codes) {
   for (const batch of batches) {
     const symbols = batch.map((code) => toSymbol(code));
     const url = `${TENCENT_QUOTE_URL}${symbols.join(',')}`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 StockAlarm',
-        Referer: 'https://finance.qq.com/',
-      },
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 StockAlarm',
+          Referer: 'https://finance.qq.com/',
+        },
+        signal: controller.signal,
+      });
+    } catch {
+      clearTimeout(timeout);
+      continue;
+    }
+    clearTimeout(timeout);
     if (!res.ok) continue;
     const buffer = Buffer.from(await res.arrayBuffer());
     let text = buffer.toString('utf8');

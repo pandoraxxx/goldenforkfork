@@ -25,7 +25,7 @@ export function Root() {
     updateUnreadCount();
     
     // 定期检查未读通知
-    const interval = setInterval(updateUnreadCount, 5000);
+    const interval = setInterval(updateUnreadCount, 15000);
     
     return () => clearInterval(interval);
   }, [location]);
