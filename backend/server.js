@@ -13,8 +13,10 @@ import {
 } from './providers/yahooFinance.js';
 import { getTencentQuotes, getTencentUniverseCodes } from './providers/tencentQuote.js';
 
-const HOST = process.env.API_HOST || '127.0.0.1';
-const PORT = Number(process.env.API_PORT || 4000);
+// In production (e.g. Render), PORT is provided by the platform and the
+// server must bind to 0.0.0.0 so it is publicly reachable.
+const HOST = process.env.API_HOST || '0.0.0.0';
+const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
 
 /** 静态代码→板块映射（优先 backend/data/sectors.json，其次 backend/sectors.json），供列表与详情展示及板块筛选 */
 let sectorMap = {};
