@@ -16,6 +16,16 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
   const pairLabel = MA_PAIRS.find(p => p.key === goldenCrossPair)?.label ?? 'MA5/20';
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
 
+  const formatMarketCap = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return '-';
+    const trillion = 1_000_000_000_000;
+    const billion = 1_000_000_000;
+    const million = 1_000_000;
+    if (value >= trillion) return `${(value / trillion).toFixed(2)}T`;
+    if (value >= billion) return `${(value / billion).toFixed(2)}B`;
+    return `${(value / million).toFixed(2)}M`;
+  };
+
   useEffect(() => {
     let alive = true;
     getFavorites()
@@ -55,7 +65,8 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
             <TableHead className="w-24 text-right tabular-nums">价格</TableHead>
             <TableHead className="w-20 text-right tabular-nums">涨跌</TableHead>
             <TableHead className="w-20 text-right tabular-nums">涨跌幅</TableHead>
-            <TableHead className="w-20 text-right tabular-nums hidden md:table-cell">成交量</TableHead>
+            <TableHead className="w-24 text-right tabular-nums hidden md:table-cell">成交量</TableHead>
+            <TableHead className="w-24 text-right tabular-nums hidden lg:table-cell">市值</TableHead>
             <TableHead className="w-28 text-right">最近金叉 ({pairLabel})</TableHead>
           </TableRow>
         </TableHeader>
@@ -112,6 +123,11 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
                 <TableCell className="text-right tabular-nums hidden md:table-cell">
                   <Link to={`/stock/${stock.code}`}>
                     {(stock.volume / 1000000).toFixed(2)}M
+                  </Link>
+                </TableCell>
+                <TableCell className="text-right tabular-nums hidden lg:table-cell">
+                  <Link to={`/stock/${stock.code}`}>
+                    {formatMarketCap(stock.marketCap)}
                   </Link>
                 </TableCell>
                 <TableCell className="text-right">

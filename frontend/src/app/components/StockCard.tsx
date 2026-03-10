@@ -15,6 +15,16 @@ interface StockCardProps {
 export function StockCard({ stock, goldenCrossPair = '5-20' }: StockCardProps) {
   const [favorite, setFavorite] = useState(false);
 
+  const formatMarketCap = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return '-';
+    const trillion = 1_000_000_000_000;
+    const billion = 1_000_000_000;
+    const million = 1_000_000;
+    if (value >= trillion) return `${(value / trillion).toFixed(2)}T`;
+    if (value >= billion) return `${(value / billion).toFixed(2)}B`;
+    return `${(value / million).toFixed(2)}M`;
+  };
+
   useEffect(() => {
     let alive = true;
     getFavorites()
@@ -83,6 +93,7 @@ export function StockCard({ stock, goldenCrossPair = '5-20' }: StockCardProps) {
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pt-2 border-t">
             <div>
               <div>成交量: {(stock.volume / 1000000).toFixed(2)}M</div>
+              <div>市值: {formatMarketCap(stock.marketCap)}</div>
               <div>最近金叉: <span className="font-medium text-primary">{stock.lastGoldenCrossByPair[goldenCrossPair] ? formatGoldenCrossDate(stock.lastGoldenCrossByPair[goldenCrossPair]!) : '暂无'}</span></div>
             </div>
           </div>

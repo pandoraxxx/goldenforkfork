@@ -26,26 +26,26 @@ function isInvalidName(value, code) {
   if (!v) return true;
   if (v.includes('�')) return true;
   if (INVALID_NAME_TOKENS.has(v.toUpperCase())) return true;
+  if (/^GP(?:-|$)/i.test(v)) return true;
   if (/^\d+$/.test(v)) return true;
+  if (/^0*\d{4,5}$/.test(v)) return true;
+  if (/^HK\s+\d{4,5}$/i.test(v)) return true;
   if (v === code) return true;
   return false;
 }
 
-function pickName(fields, fallbackCode) {
-  const fixed = String(fields[46] || '').trim();
-  if (/[A-Z]/.test(fixed) && !isInvalidName(fixed, fallbackCode)) {
-    return fixed;
-  }
+function pickNames(fields, code) {
+  const nameCnRaw = String(fields[1] || '').trim();
+  const nameEnRaw = String(fields[46] || '').trim();
 
-  for (let i = fields.length - 1; i >= 0; i -= 1) {
-    const value = String(fields[i] || '').trim();
-    if (/^[A-Z0-9 .&'()\/-]{2,}$/.test(value) && /[A-Z]/.test(value) && !isInvalidName(value, fallbackCode)) {
-      return value;
-    }
-  }
-  const raw = String(fields[1] || '').trim();
-  if (!isInvalidName(raw, fallbackCode)) return raw;
-  return `HK ${fallbackCode}`;
+  const hasCn = !isInvalidName(nameCnRaw, code);
+  const hasEn = !isInvalidName(nameEnRaw, code) && /[A-Za-z]/.test(nameEnRaw);
+  if (!hasCn && !hasEn) return null;
+
+  return {
+    name: hasEn ? nameEnRaw : nameCnRaw,
+    nameCn: hasCn ? nameCnRaw : nameEnRaw,
+  };
 }
 
 function normalizeCnName(raw, fallbackName) {
@@ -56,7 +56,8 @@ function normalizeCnName(raw, fallbackName) {
   return text;
 }
 
-function parseQuoteBody(body) {
+function parseQuoteBody(body, options = {}) {
+  const includeCodeOnly = options.includeCodeOnly !== false;
   const rows = [];
   const lines = String(body)
     .split(';')
@@ -74,11 +75,14 @@ function parseQuoteBody(body) {
     const fields = payload.split('~');
     const price = toNumber(fields[3], NaN);
     if (!Number.isFinite(price) || price <= 0) continue;
+    const names = pickNames(fields, code);
+    if (!names && !includeCodeOnly) continue;
+    const resolvedNames = names || { name: `HK ${code}`, nameCn: `HK ${code}` };
 
     const item = {
       code,
-      name: pickName(fields, code),
-      nameCn: normalizeCnName(fields[1], pickName(fields, code)),
+      name: resolvedNames.name,
+      nameCn: normalizeCnName(resolvedNames.nameCn, resolvedNames.name),
       price: Number(price.toFixed(3)),
       change: Number(toNumber(fields[31]).toFixed(3)),
       changePercent: Number(toNumber(fields[32]).toFixed(2)),
@@ -104,7 +108,7 @@ function parseQuoteBody(body) {
   return rows;
 }
 
-export async function getTencentQuotes(codes) {
+export async function getTencentQuotes(codes, options = {}) {
   const uniqueCodes = [...new Set(codes.map((code) => normalizeCode(code)).filter(Boolean))];
   if (uniqueCodes.length === 0) return [];
 
@@ -142,7 +146,7 @@ export async function getTencentQuotes(codes) {
     } catch {
       // fallback to utf-8 decoding
     }
-    all.push(...parseQuoteBody(text));
+    all.push(...parseQuoteBody(text, options));
   }
 
   return all;

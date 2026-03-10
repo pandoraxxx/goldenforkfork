@@ -1,4 +1,6 @@
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import { URL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { initDb, saveDb } from './db.js';
@@ -13,6 +15,37 @@ import { getTencentQuotes, getTencentUniverseCodes } from './providers/tencentQu
 
 const HOST = process.env.API_HOST || '127.0.0.1';
 const PORT = Number(process.env.API_PORT || 4000);
+
+/** 静态代码→板块映射（优先 backend/data/sectors.json，其次 backend/sectors.json），供列表与详情展示及板块筛选 */
+let sectorMap = {};
+let sectorList = [];
+
+function loadSectorMap() {
+  const candidates = ['backend/data/sectors.json', 'backend/sectors.json'];
+  for (const relPath of candidates) {
+    const p = path.resolve(process.cwd(), relPath);
+    if (!fs.existsSync(p)) continue;
+    const raw = fs.readFileSync(p, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') continue;
+    sectorMap = parsed;
+    const unique = new Set(
+      Object.values(sectorMap).filter((v) => typeof v === 'string' && String(v).trim() !== ''),
+    );
+    sectorList = Array.from(unique).sort();
+    return;
+  }
+
+  sectorMap = {};
+  sectorList = [];
+}
+
+try {
+  loadSectorMap();
+} catch {
+  sectorMap = {};
+  sectorList = [];
+}
 
 let db = initDb();
 let tencentUniverseSet = null;
@@ -81,26 +114,31 @@ async function getRealtimeUniverseStocks() {
 
   realtimeStocksLoading = (async () => {
     const universe = await ensureTencentUniverseSet();
+    // Keep code-only symbols visible in list views; frontend can decide how to present placeholders.
     const liveRows = await getTencentQuotes([...universe]);
-    const items = liveRows.map((row) => ({
-      id: row.code,
-      code: row.code,
-      name: row.name || `HK ${row.code}`,
-      nameCn: row.nameCn || row.name || `HK ${row.code}`,
-      price: row.price,
-      change: row.change,
-      changePercent: row.changePercent,
-      volume: row.volume,
-      marketCap: row.marketCap,
-      pe: row.pe,
-      pb: row.pb,
-      dividendYield: row.dividendYield,
-      high52w: row.high52w,
-      low52w: row.low52w,
-      sector: '',
-      lastGoldenCrossByPair: { '5-20': null, '20-50': null, '20-60': null },
-      lastGoldenCross: null,
-    }));
+    const items = liveRows.map((row) => {
+      const code = row.code;
+      const sector = sectorMap[code] || '';
+      return {
+        id: code,
+        code,
+        name: row.name || `HK ${code}`,
+        nameCn: row.nameCn || row.name || `HK ${code}`,
+        price: row.price,
+        change: row.change,
+        changePercent: row.changePercent,
+        volume: row.volume,
+        marketCap: row.marketCap,
+        pe: row.pe,
+        pb: row.pb,
+        dividendYield: row.dividendYield,
+        high52w: row.high52w,
+        low52w: row.low52w,
+        sector,
+        lastGoldenCrossByPair: { '5-20': null, '20-50': null, '20-60': null },
+        lastGoldenCross: null,
+      };
+    });
 
     realtimeStocksCache = { at: Date.now(), items };
     return items;
@@ -132,9 +170,8 @@ function applySearchSectorFilters(list, searchParams) {
     );
   }
 
-  // No real sector source currently; ignore sector filter unless "all".
   if (sector !== 'all') {
-    result = [];
+    result = result.filter((s) => (s.sector || '') === sector);
   }
 
   return result;
@@ -383,7 +420,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/api/meta') {
-      sendJson(res, 200, { sectors: [], maPairs: MA_PAIRS, popularStocks });
+      sendJson(res, 200, { sectors: sectorList, maPairs: MA_PAIRS, popularStocks });
       return;
     }
 
@@ -530,7 +567,7 @@ const server = http.createServer(async (req, res) => {
           dividendYield: rows[0].dividendYield,
           high52w: rows[0].high52w,
           low52w: rows[0].low52w,
-          sector: '',
+          sector: sectorMap[rows[0].code] || '',
           lastGoldenCrossByPair: { '5-20': null, '20-50': null, '20-60': null },
           lastGoldenCross: null,
         };
