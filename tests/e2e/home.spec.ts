@@ -18,14 +18,14 @@ test.describe('Home page', () => {
     await expect(page.getByTestId('total-count')).toContainText('共找到');
 
     await page.getByTestId('tab-popular').click();
-    await expect(page.getByText('热门股票')).toBeVisible();
+    await expect(page.getByTestId('tab-label')).toContainText('热门股票');
     await expect(page.getByTestId('stock-table')).toBeVisible();
 
     await page.getByTestId('tab-gainers').click();
-    await expect(page.getByRole('heading', { name: '涨幅榜' })).toBeVisible();
+    await expect(page.getByTestId('tab-label')).toContainText('涨幅榜');
 
     await page.getByTestId('tab-losers').click();
-    await expect(page.getByRole('heading', { name: '跌幅榜' })).toBeVisible();
+    await expect(page.getByTestId('tab-label')).toContainText('跌幅榜');
 
     await page.getByTestId('tab-all').click();
     await openSelectAndChoose(page, 'sort-select-trigger', '按代码');
