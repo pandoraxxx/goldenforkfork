@@ -500,7 +500,7 @@ const server = http.createServer(async (req, res) => {
       const tab = searchParams.get('tab') || 'all';
       const pair = searchParams.get('pair') || db.preferences.goldenCrossPair || '5-20';
       const start = (page - 1) * pageSize;
-      const needAccurateGoldenCrossSort = tab === 'all' && sortBy === 'lastGoldenCross';
+      const needGoldenCrossSort = tab === 'all' && sortBy === 'lastGoldenCross';
       const realtime = applySearchSectorFilters(await getRealtimeUniverseStocks(), searchParams);
 
       let ranked = realtime;
@@ -516,12 +516,7 @@ const server = http.createServer(async (req, res) => {
           .filter((s) => s.changePercent < 0)
           .sort((a, b) => a.changePercent - b.changePercent);
       } else {
-        if (needAccurateGoldenCrossSort) {
-          await warmupGoldenCrossCache(realtime.map((s) => s.code));
-          ranked = realtime.map((s) => {
-            return withGoldenCrossFromCache(s);
-          });
-        }
+        ranked = realtime.map((s) => withGoldenCrossFromCache(s));
         ranked = [...ranked].sort((a, b) => {
           if (sortBy === 'change') return b.changePercent - a.changePercent;
           if (sortBy === 'volume') return b.volume - a.volume;
@@ -538,16 +533,18 @@ const server = http.createServer(async (req, res) => {
 
       const items = ranked.slice(start, start + pageSize);
       let enrichedItems;
-      if (needAccurateGoldenCrossSort) {
-        // already enriched enough for sorting; no need to block again
-        enrichedItems = items;
-      } else if (tab !== 'all') {
-        // Ranking tabs have small page size; enrich eagerly to avoid all "-" on cold cache.
-        enrichedItems = await enrichStocksWithGoldenCross(items);
+      if (tab !== 'all') {
+        // Keep tab switching responsive: return cache-first and warm the current page in background.
+        enrichedItems = items.map((item) => withGoldenCrossFromCache(item));
+        warmupGoldenCrossCache(items.map((item) => item.code), 1200, 6).catch(() => {});
       } else {
-        // fast path: return immediately with cached values and warm up in background
+        // Fast path: return immediately with cached values and warm up in background.
         enrichedItems = items.map((item) => withGoldenCrossFromCache(item));
         warmupGoldenCrossCache(items.map((item) => item.code), 1500, 6).catch(() => {});
+        if (needGoldenCrossSort) {
+          // Sorting by golden cross can be expensive on cold cache; warm a broader set asynchronously.
+          warmupGoldenCrossCache(realtime.map((item) => item.code), 2200, 8).catch(() => {});
+        }
       }
 
       sendJson(res, 200, {

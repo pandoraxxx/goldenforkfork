@@ -13,7 +13,7 @@ import { StockTable } from '../components/StockTable';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Search, Grid, List, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
+import { Search, Grid, List, TrendingUp, TrendingDown, AlertCircle, Loader2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Card } from '../components/ui/card';
 
@@ -31,6 +31,13 @@ export function Home() {
   const [goldenCrossPair, setGoldenCrossPairState] = useState<GoldenCrossPairKey>('5-20');
   const [sectors, setSectors] = useState<string[]>([]);
   const [marketStats, setMarketStats] = useState({ rising: 0, falling: 0, unchanged: 0 });
+  const [isGoldenCrossLoading, setIsGoldenCrossLoading] = useState(false);
+  const goldenCrossDateMillis = (stock: Stock, pairKey: GoldenCrossPairKey) => {
+    const event = stock.lastGoldenCrossByPair?.[pairKey];
+    if (!event?.date) return 0;
+    const ts = new Date(event.date).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  };
 
   useEffect(() => {
     let alive = true;
@@ -82,6 +89,47 @@ export function Home() {
     let alive = true;
 
     async function loadList() {
+      if (sortBy === 'lastGoldenCross') setIsGoldenCrossLoading(true);
+      try {
+        const data = await getStocks({
+          search: searchQuery,
+          sector: sectorFilter,
+          tab: activeTab as 'all' | 'popular' | 'gainers' | 'losers',
+          sortBy,
+          pair: sortBy === 'lastGoldenCross' ? goldenCrossPair : undefined,
+          page: currentPage,
+          pageSize: STOCKS_PER_PAGE,
+        });
+        if (!alive) return;
+        setStocks(data.items);
+        setTotalStocks(data.total);
+      } catch {
+        if (alive) {
+          setStocks([]);
+          setTotalStocks(0);
+        }
+      } finally {
+        if (alive && sortBy === 'lastGoldenCross') setIsGoldenCrossLoading(false);
+      }
+    }
+
+    loadList();
+    // Backend warms golden-cross cache asynchronously on cold start.
+    // Pull once shortly after first load so users don't need manual refresh.
+    const firstLoadCatchUp = setTimeout(loadList, 2500);
+    const interval = setInterval(loadList, 30_000);
+    return () => {
+      alive = false;
+      clearTimeout(firstLoadCatchUp);
+      clearInterval(interval);
+    };
+  }, [searchQuery, sectorFilter, sortBy, currentPage, activeTab]);
+
+  useEffect(() => {
+    if (sortBy !== 'lastGoldenCross') return;
+    let alive = true;
+    const loadForPair = async () => {
+      setIsGoldenCrossLoading(true);
       try {
         const data = await getStocks({
           search: searchQuery,
@@ -96,23 +144,30 @@ export function Home() {
         setStocks(data.items);
         setTotalStocks(data.total);
       } catch {
-        if (alive) {
-          setStocks([]);
-          setTotalStocks(0);
-        }
+        // keep current list on transient error
+      } finally {
+        if (alive) setIsGoldenCrossLoading(false);
       }
-    }
+    };
 
-    loadList();
-    const interval = setInterval(loadList, 30_000);
+    loadForPair();
+    const catchUp = setTimeout(loadForPair, 1200);
     return () => {
       alive = false;
-      clearInterval(interval);
+      clearTimeout(catchUp);
     };
-  }, [searchQuery, sectorFilter, sortBy, currentPage, goldenCrossPair, activeTab]);
+  }, [goldenCrossPair, sortBy, searchQuery, sectorFilter, activeTab, currentPage]);
 
   const handleGoldenCrossPairChange = async (key: string) => {
-    setGoldenCrossPairState(key as GoldenCrossPairKey);
+    const nextKey = key as GoldenCrossPairKey;
+    setGoldenCrossPairState(nextKey);
+    if (sortBy === 'lastGoldenCross') {
+      setStocks((prev) => {
+        const next = [...prev];
+        next.sort((a, b) => goldenCrossDateMillis(b, nextKey) - goldenCrossDateMillis(a, nextKey));
+        return next;
+      });
+    }
     try {
       await setGoldenCrossPairPreference(key);
     } catch {
@@ -216,6 +271,12 @@ export function Home() {
             <AlertCircle className="h-4 w-4" />
             <span>共找到 {totalStocks} 只股票</span>
           </div>
+          {isGoldenCrossLoading && sortBy === 'lastGoldenCross' ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="golden-cross-loading">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>金叉数据加载中...</span>
+            </div>
+          ) : null}
         </div>
       </div>
 
