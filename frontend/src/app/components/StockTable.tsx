@@ -1,8 +1,9 @@
-import { formatGoldenCrossDate, MA_PAIRS, type GoldenCrossPairKey } from '../utils/market';
+import { formatGoldenCrossDate, isGoldenCrossBuySignal, MA_PAIRS, type GoldenCrossPairKey } from '../utils/market';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Link } from 'react-router';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
+import { Badge } from './ui/badge';
 import { addFavorite, getFavorites, removeFavorite, Stock } from '../api/client';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -74,6 +75,8 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
           {stocks.map((stock) => {
             const isPositive = stock.change >= 0;
             const isFav = favorites.has(stock.code);
+            const selectedPairEvent = stock.lastGoldenCrossByPair[goldenCrossPair];
+            const hasBuySignal = isGoldenCrossBuySignal(selectedPairEvent);
             
             return (
               <TableRow key={stock.id} className="cursor-pointer hover:bg-muted/50" data-testid={`stock-row-${stock.code}`}>
@@ -131,8 +134,9 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
                   </Link>
                 </TableCell>
                 <TableCell className="text-right">
-                  <Link to={`/stock/${stock.code}`} className="font-medium text-primary">
-                    {stock.lastGoldenCrossByPair[goldenCrossPair] ? formatGoldenCrossDate(stock.lastGoldenCrossByPair[goldenCrossPair]!) : '-'}
+                  <Link to={`/stock/${stock.code}`} className="inline-flex items-center gap-2 justify-end font-medium text-primary">
+                    <span>{selectedPairEvent ? formatGoldenCrossDate(selectedPairEvent) : '-'}</span>
+                    {hasBuySignal ? <Badge className="bg-green-600 hover:bg-green-600">买入信号</Badge> : null}
                   </Link>
                 </TableCell>
               </TableRow>

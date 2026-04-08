@@ -22,3 +22,11 @@ export function formatGoldenCrossDate(event: GoldenCrossEvent): string {
   const [, m, d] = event.date.split('-');
   return `${parseInt(m, 10)}月${parseInt(d, 10)}日 ${event.time}`;
 }
+
+export function isGoldenCrossBuySignal(event: GoldenCrossEvent | null | undefined, recentDays = 5): boolean {
+  if (!event?.date) return false;
+  const ts = new Date(event.date).getTime();
+  if (!Number.isFinite(ts)) return false;
+  const days = (Date.now() - ts) / (24 * 60 * 60 * 1000);
+  return days >= 0 && days <= recentDays;
+}

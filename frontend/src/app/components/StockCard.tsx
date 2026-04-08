@@ -1,7 +1,8 @@
-import { formatGoldenCrossDate, type GoldenCrossPairKey } from '../utils/market';
+import { formatGoldenCrossDate, isGoldenCrossBuySignal, type GoldenCrossPairKey } from '../utils/market';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
+import { Badge } from './ui/badge';
 import { Link } from 'react-router';
 import { addFavorite, getFavorites, removeFavorite, Stock } from '../api/client';
 import { useEffect, useState } from 'react';
@@ -14,6 +15,8 @@ interface StockCardProps {
 
 export function StockCard({ stock, goldenCrossPair = '5-20' }: StockCardProps) {
   const [favorite, setFavorite] = useState(false);
+  const selectedPairEvent = stock.lastGoldenCrossByPair[goldenCrossPair];
+  const hasBuySignal = isGoldenCrossBuySignal(selectedPairEvent);
 
   const formatMarketCap = (value: number) => {
     if (!Number.isFinite(value) || value <= 0) return '-';
@@ -94,7 +97,10 @@ export function StockCard({ stock, goldenCrossPair = '5-20' }: StockCardProps) {
             <div>
               <div>成交量: {(stock.volume / 1000000).toFixed(2)}M</div>
               <div>市值: {formatMarketCap(stock.marketCap)}</div>
-              <div>最近金叉: <span className="font-medium text-primary">{stock.lastGoldenCrossByPair[goldenCrossPair] ? formatGoldenCrossDate(stock.lastGoldenCrossByPair[goldenCrossPair]!) : '暂无'}</span></div>
+              <div className="flex items-center gap-2">
+                <span>最近金叉: <span className="font-medium text-primary">{selectedPairEvent ? formatGoldenCrossDate(selectedPairEvent) : '暂无'}</span></span>
+                {hasBuySignal ? <Badge className="bg-green-600 hover:bg-green-600">买入信号</Badge> : null}
+              </div>
             </div>
           </div>
         </div>

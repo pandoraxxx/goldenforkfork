@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router';
-import { MA_PAIRS } from '../utils/market';
+import { isGoldenCrossBuySignal, MA_PAIRS } from '../utils/market';
 import {
   addFavorite,
   getFavorites,
@@ -149,6 +149,9 @@ export function StockDetail() {
   }
 
   const isPositive = stock.change >= 0;
+  const latestPair = MA_PAIRS[0];
+  const latestEventForDefaultPair = stock.lastGoldenCrossByPair[latestPair.key];
+  const hasBuySignal = isGoldenCrossBuySignal(latestEventForDefaultPair);
 
   const formatPriceTick = (value: number) => {
     const abs = Math.abs(value);
@@ -198,6 +201,7 @@ export function StockDetail() {
             <div className="flex items-center gap-3 mb-2">
               <h1 className="text-3xl font-bold" data-testid="stock-name">{stock.nameCn}</h1>
               <Badge variant="outline">{stock.sector}</Badge>
+              {hasBuySignal ? <Badge className="bg-green-600 hover:bg-green-600">金叉买入信号</Badge> : null}
             </div>
             <p className="text-muted-foreground mb-4">{stock.code}</p>
 
@@ -376,12 +380,14 @@ export function StockDetail() {
                                 <th className="text-right p-3 font-medium">MA{pair.short}</th>
                                 <th className="text-right p-3 font-medium">MA{pair.long}</th>
                                 <th className="text-right p-3 font-medium">收盘价</th>
+                                <th className="text-right p-3 font-medium">信号</th>
                               </tr>
                             </thead>
                             <tbody>
                               {events.map((event, i) => {
                                 const [, m, d] = event.date.split('-');
                                 const dateStr = `${parseInt(m, 10)}月${parseInt(d, 10)}日`;
+                                const rowBuySignal = isGoldenCrossBuySignal(event);
                                 return (
                                   <tr key={i} className="border-b last:border-0">
                                     <td className="p-3">{dateStr}</td>
@@ -389,6 +395,9 @@ export function StockDetail() {
                                     <td className="p-3 text-right font-medium text-primary">{event.shortMA}</td>
                                     <td className="p-3 text-right">{event.longMA}</td>
                                     <td className="p-3 text-right">HK${event.close.toFixed(2)}</td>
+                                    <td className="p-3 text-right">
+                                      {rowBuySignal ? <Badge className="bg-green-600 hover:bg-green-600">买入信号</Badge> : <span className="text-muted-foreground">-</span>}
+                                    </td>
                                   </tr>
                                 );
                               })}
