@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MA_PAIRS, type GoldenCrossPairKey } from '../utils/market';
 import {
   getGoldenCrossPairPreference,
@@ -32,6 +32,10 @@ export function Home() {
   const [sectors, setSectors] = useState<string[]>([]);
   const [marketStats, setMarketStats] = useState({ rising: 0, falling: 0, unchanged: 0 });
   const [isGoldenCrossLoading, setIsGoldenCrossLoading] = useState(false);
+  const [isGoldenCrossHydrating, setIsGoldenCrossHydrating] = useState(false);
+  const loadingStartRef = useRef(0);
+  const loadingDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const MIN_LOADING_VISIBLE_MS = 350;
   const goldenCrossDateMillis = (stock: Stock, pairKey: GoldenCrossPairKey) => {
     const event = stock.lastGoldenCrossByPair?.[pairKey];
     if (!event?.date) return 0;
@@ -87,9 +91,53 @@ export function Home() {
 
   useEffect(() => {
     let alive = true;
+    const beginGoldenCrossLoading = () => {
+      if (loadingDelayTimerRef.current) {
+        clearTimeout(loadingDelayTimerRef.current);
+        loadingDelayTimerRef.current = null;
+      }
+      loadingStartRef.current = Date.now();
+      setIsGoldenCrossLoading(true);
+    };
+    const endGoldenCrossLoading = () => {
+      const elapsed = Date.now() - loadingStartRef.current;
+      const remaining = Math.max(0, MIN_LOADING_VISIBLE_MS - elapsed);
+      if (loadingDelayTimerRef.current) clearTimeout(loadingDelayTimerRef.current);
+      loadingDelayTimerRef.current = setTimeout(() => {
+        if (alive) setIsGoldenCrossLoading(false);
+      }, remaining);
+    };
+    const needsGoldenCrossHydration = (items: Stock[]) =>
+      items.some((item) => !item.lastGoldenCrossByPair?.[goldenCrossPair]);
+    const hydrateGoldenCrossIfNeeded = async (initialItems: Stock[]) => {
+      if (sortBy === 'lastGoldenCross' || !needsGoldenCrossHydration(initialItems)) return;
+      setIsGoldenCrossHydrating(true);
+      for (let attempt = 0; attempt < 8 && alive; attempt += 1) {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 450);
+        });
+        try {
+          const data = await getStocks({
+            search: searchQuery,
+            sector: sectorFilter,
+            tab: activeTab as 'all' | 'popular' | 'gainers' | 'losers',
+            sortBy,
+            page: currentPage,
+            pageSize: STOCKS_PER_PAGE,
+          });
+          if (!alive) return;
+          setStocks(data.items);
+          setTotalStocks(data.total);
+          if (!needsGoldenCrossHydration(data.items)) break;
+        } catch {
+          // keep retrying while alive
+        }
+      }
+      if (alive) setIsGoldenCrossHydrating(false);
+    };
 
     async function loadList() {
-      if (sortBy === 'lastGoldenCross') setIsGoldenCrossLoading(true);
+      if (sortBy === 'lastGoldenCross') beginGoldenCrossLoading();
       try {
         const data = await getStocks({
           search: searchQuery,
@@ -103,24 +151,27 @@ export function Home() {
         if (!alive) return;
         setStocks(data.items);
         setTotalStocks(data.total);
+        hydrateGoldenCrossIfNeeded(data.items).catch(() => {});
       } catch {
         if (alive) {
           setStocks([]);
           setTotalStocks(0);
+          setIsGoldenCrossHydrating(false);
         }
       } finally {
-        if (alive && sortBy === 'lastGoldenCross') setIsGoldenCrossLoading(false);
+        if (alive && sortBy === 'lastGoldenCross') endGoldenCrossLoading();
       }
     }
 
     loadList();
-    // Backend warms golden-cross cache asynchronously on cold start.
-    // Pull once shortly after first load so users don't need manual refresh.
-    const firstLoadCatchUp = setTimeout(loadList, 2500);
     const interval = setInterval(loadList, 30_000);
     return () => {
       alive = false;
-      clearTimeout(firstLoadCatchUp);
+      if (loadingDelayTimerRef.current) {
+        clearTimeout(loadingDelayTimerRef.current);
+        loadingDelayTimerRef.current = null;
+      }
+      setIsGoldenCrossHydrating(false);
       clearInterval(interval);
     };
   }, [searchQuery, sectorFilter, sortBy, currentPage, activeTab]);
@@ -128,8 +179,24 @@ export function Home() {
   useEffect(() => {
     if (sortBy !== 'lastGoldenCross') return;
     let alive = true;
-    const loadForPair = async () => {
+    const beginGoldenCrossLoading = () => {
+      if (loadingDelayTimerRef.current) {
+        clearTimeout(loadingDelayTimerRef.current);
+        loadingDelayTimerRef.current = null;
+      }
+      loadingStartRef.current = Date.now();
       setIsGoldenCrossLoading(true);
+    };
+    const endGoldenCrossLoading = () => {
+      const elapsed = Date.now() - loadingStartRef.current;
+      const remaining = Math.max(0, MIN_LOADING_VISIBLE_MS - elapsed);
+      if (loadingDelayTimerRef.current) clearTimeout(loadingDelayTimerRef.current);
+      loadingDelayTimerRef.current = setTimeout(() => {
+        if (alive) setIsGoldenCrossLoading(false);
+      }, remaining);
+    };
+    const loadForPair = async () => {
+      beginGoldenCrossLoading();
       try {
         const data = await getStocks({
           search: searchQuery,
@@ -146,7 +213,7 @@ export function Home() {
       } catch {
         // keep current list on transient error
       } finally {
-        if (alive) setIsGoldenCrossLoading(false);
+        if (alive) endGoldenCrossLoading();
       }
     };
 
@@ -154,6 +221,10 @@ export function Home() {
     const catchUp = setTimeout(loadForPair, 1200);
     return () => {
       alive = false;
+      if (loadingDelayTimerRef.current) {
+        clearTimeout(loadingDelayTimerRef.current);
+        loadingDelayTimerRef.current = null;
+      }
       clearTimeout(catchUp);
     };
   }, [goldenCrossPair, sortBy, searchQuery, sectorFilter, activeTab, currentPage]);
@@ -275,6 +346,12 @@ export function Home() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="golden-cross-loading">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>金叉数据加载中...</span>
+            </div>
+          ) : null}
+          {isGoldenCrossHydrating && sortBy !== 'lastGoldenCross' ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="golden-cross-hydrating">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>金叉数据补拉中...</span>
             </div>
           ) : null}
         </div>
