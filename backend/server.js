@@ -56,6 +56,9 @@ let marketStatsCache = { at: 0, stats: null };
 let realtimeStocksCache = { at: 0, items: null };
 let realtimeStocksLoading = null;
 const goldenCrossCache = new Map();
+const REALTIME_STOCKS_TTL_MS = 60_000;
+const MARKET_STATS_TTL_MS = 60_000;
+const GOLDEN_CROSS_TTL_MS = 5 * 60_000;
 
 async function ensureTencentUniverseSet() {
   if (tencentUniverseSet) return tencentUniverseSet;
@@ -78,7 +81,7 @@ async function ensureTencentUniverseSet() {
 
 async function getRealtimeMarketStats() {
   const now = Date.now();
-  if (marketStatsCache.stats && now - marketStatsCache.at < 60_000) {
+  if (marketStatsCache.stats && now - marketStatsCache.at < MARKET_STATS_TTL_MS) {
     return marketStatsCache.stats;
   }
 
@@ -106,14 +109,8 @@ async function getRealtimeMarketStats() {
   return stats;
 }
 
-async function getRealtimeUniverseStocks() {
-  const now = Date.now();
-  if (realtimeStocksCache.items && now - realtimeStocksCache.at < 60_000) {
-    return realtimeStocksCache.items;
-  }
-
+function loadRealtimeUniverseStocks() {
   if (realtimeStocksLoading) return realtimeStocksLoading;
-
   realtimeStocksLoading = (async () => {
     const universe = await ensureTencentUniverseSet();
     // Keep code-only symbols visible in list views; frontend can decide how to present placeholders.
@@ -150,6 +147,21 @@ async function getRealtimeUniverseStocks() {
     });
 
   return realtimeStocksLoading;
+}
+
+async function getRealtimeUniverseStocks() {
+  const now = Date.now();
+  if (realtimeStocksCache.items && now - realtimeStocksCache.at < REALTIME_STOCKS_TTL_MS) {
+    return realtimeStocksCache.items;
+  }
+
+  // Stale-while-revalidate: if stale data exists, return immediately and refresh in background.
+  if (realtimeStocksCache.items) {
+    loadRealtimeUniverseStocks().catch(() => {});
+    return realtimeStocksCache.items;
+  }
+
+  return loadRealtimeUniverseStocks();
 }
 
 async function isValidStockCode(code) {
@@ -249,7 +261,7 @@ function conditionPassed(current, condition, target) {
 async function getGoldenCrossByPair(code) {
   const cached = goldenCrossCache.get(code);
   const now = Date.now();
-  if (cached && now - cached.at < 10 * 60_000) {
+  if (cached && now - cached.at < GOLDEN_CROSS_TTL_MS) {
     return cached.value;
   }
 
@@ -266,6 +278,7 @@ async function getGoldenCrossByPair(code) {
 function getCachedGoldenCrossByPair(code) {
   const cached = goldenCrossCache.get(code);
   if (!cached) return null;
+  if (Date.now() - cached.at >= GOLDEN_CROSS_TTL_MS) return null;
   return cached.value;
 }
 

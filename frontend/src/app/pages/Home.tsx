@@ -104,8 +104,10 @@ export function Home() {
     }
 
     loadList();
+    const interval = setInterval(loadList, 30_000);
     return () => {
       alive = false;
+      clearInterval(interval);
     };
   }, [searchQuery, sectorFilter, sortBy, currentPage, goldenCrossPair, activeTab]);
 
