@@ -1,59 +1,21 @@
 import { formatGoldenCrossDate, isGoldenCrossBuySignal, getPairLabel, type GoldenCrossPairKey } from '../utils/market';
+import { formatMarketCap } from '../utils/format';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Link } from 'react-router';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { addFavorite, getFavorites, removeFavorite, Stock } from '../api/client';
-import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
+import { Stock } from '../api/client';
 
 interface StockTableProps {
   stocks: Stock[];
   goldenCrossPair?: GoldenCrossPairKey;
+  favorites?: Set<string>;
+  onToggleFavorite?: (code: string) => void;
 }
 
-export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps) {
+export function StockTable({ stocks, goldenCrossPair = '5-20', favorites = new Set(), onToggleFavorite }: StockTableProps) {
   const pairLabel = getPairLabel(goldenCrossPair);
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
-
-  const formatMarketCap = (value: number) => {
-    if (!Number.isFinite(value) || value <= 0) return '-';
-    const trillion = 1_000_000_000_000;
-    const billion = 1_000_000_000;
-    const million = 1_000_000;
-    if (value >= trillion) return `${(value / trillion).toFixed(2)}T`;
-    if (value >= billion) return `${(value / billion).toFixed(2)}B`;
-    return `${(value / million).toFixed(2)}M`;
-  };
-
-  useEffect(() => {
-    let alive = true;
-    getFavorites()
-      .then((codes) => {
-        if (alive) setFavorites(new Set(codes));
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-  
-  const handleToggleFavorite = async (stockCode: string) => {
-    const newFavorites = new Set(favorites);
-    try {
-      if (favorites.has(stockCode)) {
-        await removeFavorite(stockCode);
-        newFavorites.delete(stockCode);
-      } else {
-        await addFavorite(stockCode);
-        newFavorites.add(stockCode);
-      }
-      setFavorites(newFavorites);
-    } catch {
-      toast.error('收藏操作失败，请稍后重试');
-    }
-  };
   
   return (
     <div className="rounded-md border overflow-hidden" data-testid="stock-table">
@@ -88,8 +50,9 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      handleToggleFavorite(stock.code);
+                      onToggleFavorite?.(stock.code);
                     }}
+                    aria-label={isFav ? '取消收藏' : '添加收藏'}
                   >
                     <Star 
                       className={`h-4 w-4 ${isFav ? 'fill-primary text-primary' : 'text-muted-foreground'}`} 

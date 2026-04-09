@@ -1,17 +1,9 @@
+import type { GoldenCrossEvent } from '../utils/market';
+
+export type { GoldenCrossEvent };
+
 export type Indicator = 'price' | 'rsi' | 'macd' | 'volume' | 'pe' | 'pb';
 export type Condition = 'above' | 'below' | 'equal';
-
-export interface GoldenCrossEvent {
-  date: string;
-  time: string;
-  shortMA: number;
-  longMA: number;
-  close: number;
-  type: 'golden';
-  shortPeriod: number;
-  longPeriod: number;
-  pairKey: string;
-}
 
 export interface Stock {
   id: string;

@@ -5,6 +5,9 @@ import {
   getMarketStats,
   getMeta,
   getStocks,
+  getFavorites,
+  addFavorite,
+  removeFavorite,
   setGoldenCrossPairPreference,
   Stock,
   NetworkError,
@@ -39,6 +42,7 @@ export function Home() {
   const [customShort, setCustomShort] = useState('');
   const [customLong, setCustomLong] = useState('');
   const [customPairError, setCustomPairError] = useState('');
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const loadingStartRef = useRef(0);
   const loadingDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stocksRequestRef = useRef<AbortController | null>(null);
@@ -100,6 +104,27 @@ export function Home() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    getFavorites()
+      .then((codes) => { if (alive) setFavorites(new Set(codes)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const handleToggleFavorite = async (code: string) => {
+    const wasFav = favorites.has(code);
+    const next = new Set(favorites);
+    if (wasFav) next.delete(code); else next.add(code);
+    setFavorites(next);
+    try {
+      if (wasFav) await removeFavorite(code);
+      else await addFavorite(code);
+    } catch {
+      setFavorites(favorites);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -186,7 +211,6 @@ export function Home() {
 
     let loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
     async function loadList(retryCount = 0) {
-      if (sortBy === 'lastGoldenCross') beginGoldenCrossLoading();
       let controller: AbortController | null = null;
       try {
         if (stocksRequestRef.current) stocksRequestRef.current.abort();
@@ -217,7 +241,6 @@ export function Home() {
         }
       } finally {
         if (controller && stocksRequestRef.current === controller) stocksRequestRef.current = null;
-        if (alive && sortBy === 'lastGoldenCross') endGoldenCrossLoading();
       }
     }
 
@@ -352,13 +375,15 @@ export function Home() {
 
   const handleSortByChange = (value: 'code' | 'change' | 'volume' | 'marketCap' | 'lastGoldenCross') => {
     setSortBy(value);
+    resetPage();
   };
 
   const totalPages = Math.ceil(totalStocks / STOCKS_PER_PAGE);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, sectorFilter, sortBy, activeTab]);
+  const resetPage = () => setCurrentPage(1);
+  const handleSearchChange = (value: string) => { setSearchQuery(value); resetPage(); };
+  const handleSectorChange = (value: string) => { setSectorFilter(value); resetPage(); };
+  const handleTabChange = (value: string) => { setActiveTab(value); resetPage(); };
 
   const stats = useMemo(() => marketStats, [marketStats]);
 
@@ -376,13 +401,13 @@ export function Home() {
               type="text"
               placeholder="搜索股票代码或名称..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-10"
               data-testid="search-input"
             />
           </div>
 
-          <Select value={sectorFilter} onValueChange={setSectorFilter}>
+          <Select value={sectorFilter} onValueChange={handleSectorChange}>
             <SelectTrigger className="w-full md:w-[180px]" data-testid="sector-select-trigger">
               <SelectValue placeholder="选择板块" />
             </SelectTrigger>
@@ -503,11 +528,11 @@ export function Home() {
         {viewMode === 'grid' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {stocks.map((stock) => (
-              <StockCard key={stock.id} stock={stock} goldenCrossPair={goldenCrossPair} />
+              <StockCard key={stock.id} stock={stock} goldenCrossPair={goldenCrossPair} isFavorite={favorites.has(stock.code)} onToggleFavorite={handleToggleFavorite} />
             ))}
           </div>
         ) : (
-          <StockTable stocks={stocks} goldenCrossPair={goldenCrossPair} />
+          <StockTable stocks={stocks} goldenCrossPair={goldenCrossPair} favorites={favorites} onToggleFavorite={handleToggleFavorite} />
         )}
       </div>
 
@@ -567,7 +592,7 @@ export function Home() {
         </div>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="all" data-testid="tab-all">全部股票</TabsTrigger>
           <TabsTrigger value="popular" data-testid="tab-popular">热门</TabsTrigger>

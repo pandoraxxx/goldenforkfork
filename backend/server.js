@@ -61,8 +61,21 @@ const stocksQueryCache = new Map();
 const REALTIME_STOCKS_TTL_MS = 60_000;
 const MARKET_STATS_TTL_MS = 60_000;
 const GOLDEN_CROSS_TTL_MS = 5 * 60_000;
+const GOLDEN_CROSS_CACHE_MAX = 500;
 const STOCKS_QUERY_TTL_MS = 3_000;
 const STOCKS_QUERY_CACHE_MAX = 200;
+
+function evictGoldenCrossCache() {
+  if (goldenCrossCache.size <= GOLDEN_CROSS_CACHE_MAX) return;
+  const now = Date.now();
+  for (const [key, entry] of goldenCrossCache) {
+    if (now - entry.at >= GOLDEN_CROSS_TTL_MS) goldenCrossCache.delete(key);
+  }
+  if (goldenCrossCache.size <= GOLDEN_CROSS_CACHE_MAX) return;
+  const sorted = [...goldenCrossCache.entries()].sort((a, b) => a[1].at - b[1].at);
+  const toRemove = sorted.length - GOLDEN_CROSS_CACHE_MAX;
+  for (let i = 0; i < toRemove; i++) goldenCrossCache.delete(sorted[i][0]);
+}
 
 async function ensureTencentUniverseSet() {
   if (tencentUniverseSet) return tencentUniverseSet;
@@ -215,9 +228,14 @@ function sendNoContent(res) {
   res.end();
 }
 
+const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+
 async function parseBody(req) {
   const chunks = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
+    totalBytes += chunk.length;
+    if (totalBytes > MAX_BODY_BYTES) throw new Error('BODY_TOO_LARGE');
     chunks.push(chunk);
   }
 
@@ -276,11 +294,13 @@ async function getGoldenCrossByPair(code, extraPairs = []) {
     const missing = allPairs.filter((p) => !(p.key in cached.value));
     if (missing.length === 0) return cached.value;
     const history = await getLivePriceHistory(code, '6mo', '1d');
+    const updated = { ...cached.value };
     for (const pair of missing) {
       const events = detectGoldenCrossEvents(history, pair.short, pair.long, pair.key);
-      cached.value[pair.key] = events.length > 0 ? events[events.length - 1] : null;
+      updated[pair.key] = events.length > 0 ? events[events.length - 1] : null;
     }
-    return cached.value;
+    goldenCrossCache.set(code, { at: cached.at, value: updated });
+    return updated;
   }
 
   const history = await getLivePriceHistory(code, '6mo', '1d');
@@ -290,6 +310,7 @@ async function getGoldenCrossByPair(code, extraPairs = []) {
     value[pair.key] = events.length > 0 ? events[events.length - 1] : null;
   }
   goldenCrossCache.set(code, { at: now, value });
+  evictGoldenCrossCache();
   return value;
 }
 
@@ -348,8 +369,8 @@ function buildStocksQueryCacheKey(searchParams, prefsPairKey) {
     tab: searchParams.get('tab') || 'all',
     sortBy: searchParams.get('sortBy') || 'volume',
     pair: searchParams.get('pair') || prefsPairKey || '5-20',
-    page: String(Math.max(1, Number(searchParams.get('page') || 1))),
-    pageSize: String(Math.min(100, Math.max(1, Number(searchParams.get('pageSize') || 20)))),
+    page: String(Math.max(1, parseInt(searchParams.get('page'), 10) || 1)),
+    pageSize: String(Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize'), 10) || 20))),
   };
   return JSON.stringify(normalized);
 }
@@ -581,8 +602,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const page = Math.max(1, Number(searchParams.get('page') || 1));
-      const pageSize = Math.min(100, Math.max(1, Number(searchParams.get('pageSize') || 20)));
+      const page = Math.max(1, parseInt(searchParams.get('page'), 10) || 1);
+      const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize'), 10) || 20));
       const sortBy = searchParams.get('sortBy') || 'volume';
       const tab = searchParams.get('tab') || 'all';
       const pairKey = searchParams.get('pair') || db.preferences.goldenCrossPair || '5-20';
@@ -908,6 +929,11 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 400, { error: 'JSON 格式错误' });
       return;
     }
+    if (error instanceof Error && error.message === 'BODY_TOO_LARGE') {
+      sendJson(res, 413, { error: '请求体过大' });
+      return;
+    }
+    console.error('[server] unhandled error:', error);
     sendJson(res, 500, { error: '服务器错误' });
   }
 });

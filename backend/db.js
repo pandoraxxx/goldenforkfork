@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const DB_PATH = path.resolve(process.cwd(), 'backend/data/db.json');
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const DB_PATH = path.resolve(__dirname, 'data', 'db.json');
 
 const defaultDb = {
   subscriptions: [],

@@ -126,6 +126,16 @@ export function StockDetail() {
     return [Math.max(0, min - pad), max + pad];
   }, [priceHistory]);
 
+  const displayPairs: MAPair[] = useMemo(() => {
+    const base: MAPair[] = [...MA_PAIRS];
+    const customKeys = Object.keys(goldenCrossEventsByPair).filter((k) => !isPresetPair(k));
+    for (const k of customKeys) {
+      const p = parsePairKey(k);
+      if (p) base.push(p);
+    }
+    return base;
+  }, [goldenCrossEventsByPair]);
+
   if (loading) {
     return (
       <div className="space-y-4" data-testid="stock-detail-loading">
@@ -156,15 +166,6 @@ export function StockDetail() {
   }
 
   const isPositive = stock.change >= 0;
-  const displayPairs: MAPair[] = useMemo(() => {
-    const base: MAPair[] = [...MA_PAIRS];
-    const customKeys = Object.keys(goldenCrossEventsByPair).filter((k) => !isPresetPair(k));
-    for (const k of customKeys) {
-      const p = parsePairKey(k);
-      if (p) base.push(p);
-    }
-    return base;
-  }, [goldenCrossEventsByPair]);
   const latestPair = displayPairs[0];
   const latestEventForDefaultPair = stock.lastGoldenCrossByPair[latestPair.key];
   const hasBuySignal = isGoldenCrossBuySignal(latestEventForDefaultPair);
