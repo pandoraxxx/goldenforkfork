@@ -36,10 +36,19 @@ export function Home() {
   const loadingStartRef = useRef(0);
   const loadingDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stocksRequestRef = useRef<AbortController | null>(null);
+  const stockListRef = useRef<HTMLDivElement>(null);
   const MIN_LOADING_VISIBLE_MS = 350;
   const PAIR_SWITCH_DEBOUNCE_MS = 180;
   const isAbortError = (error: unknown) => error instanceof Error && error.name === 'AbortError';
   const isPairSwitchLocked = isGoldenCrossHydrating || isGoldenCrossLoading || stocks.length === 0;
+  const lockListHeight = () => {
+    if (stockListRef.current) {
+      stockListRef.current.style.minHeight = `${stockListRef.current.offsetHeight}px`;
+    }
+  };
+  useEffect(() => {
+    if (stockListRef.current) stockListRef.current.style.minHeight = '';
+  }, [stocks]);
   const goldenCrossDateMillis = (stock: Stock, pairKey: GoldenCrossPairKey) => {
     const event = stock.lastGoldenCrossByPair?.[pairKey];
     if (!event?.date) return 0;
@@ -382,40 +391,43 @@ export function Home() {
             <TabIcon className={`h-5 w-5 shrink-0 ${iconClass}`} />
             <span className="text-[20px] font-semibold text-foreground">{title}</span>
           </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="total-count">
-            <AlertCircle className="h-4 w-4" />
-            <span>共找到 {totalStocks} 只股票</span>
+          <div className="flex items-center gap-3 text-sm text-muted-foreground" data-testid="total-count">
+            <span className="flex items-center gap-1.5">
+              <AlertCircle className="h-4 w-4" />
+              共找到 {totalStocks} 只股票
+            </span>
+            {isGoldenCrossLoading && sortBy === 'lastGoldenCross' ? (
+              <span className="flex items-center gap-1.5" data-testid="golden-cross-loading">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                金叉数据加载中...
+              </span>
+            ) : isGoldenCrossHydrating && sortBy !== 'lastGoldenCross' ? (
+              <span className="flex items-center gap-1.5" data-testid="golden-cross-hydrating">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                金叉数据补拉中...
+              </span>
+            ) : null}
           </div>
-          {isGoldenCrossLoading && sortBy === 'lastGoldenCross' ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="golden-cross-loading">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>金叉数据加载中...</span>
-            </div>
-          ) : null}
-          {isGoldenCrossHydrating && sortBy !== 'lastGoldenCross' ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="golden-cross-hydrating">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>金叉数据补拉中...</span>
-            </div>
-          ) : null}
         </div>
       </div>
 
-      {viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {stocks.map((stock) => (
-            <StockCard key={stock.id} stock={stock} goldenCrossPair={goldenCrossPair} />
-          ))}
-        </div>
-      ) : (
-        <StockTable stocks={stocks} goldenCrossPair={goldenCrossPair} />
-      )}
+      <div ref={stockListRef}>
+        {viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {stocks.map((stock) => (
+              <StockCard key={stock.id} stock={stock} goldenCrossPair={goldenCrossPair} />
+            ))}
+          </div>
+        ) : (
+          <StockTable stocks={stocks} goldenCrossPair={goldenCrossPair} />
+        )}
+      </div>
 
       {totalPages > 1 && (
         <div className="flex justify-center gap-2 mt-6">
           <Button
             variant="outline"
-            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            onClick={() => { lockListHeight(); setCurrentPage((p) => Math.max(1, p - 1)); }}
             disabled={currentPage === 1}
             data-testid="pagination-prev"
           >
@@ -428,7 +440,7 @@ export function Home() {
           </div>
           <Button
             variant="outline"
-            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            onClick={() => { lockListHeight(); setCurrentPage((p) => Math.min(totalPages, p + 1)); }}
             disabled={currentPage === totalPages}
             data-testid="pagination-next"
           >

@@ -75,7 +75,7 @@ export function StockCard({ stock, goldenCrossPair = '5-20' }: StockCardProps) {
               </Button>
             </div>
             <p className="text-sm text-muted-foreground truncate">{stock.nameCn}</p>
-            <span className="text-xs text-muted-foreground/80">{stock.sector}</span>
+            <span className="text-xs text-muted-foreground/80">{stock.sector || '未分类'}</span>
           </div>
           <div className={`text-right ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
             <div className="flex items-center justify-end gap-1">

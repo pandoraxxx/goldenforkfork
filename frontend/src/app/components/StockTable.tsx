@@ -104,7 +104,7 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
                 <TableCell>
                   <Link to={`/stock/${stock.code}`} className="hover:underline">
                     <div className="max-w-[120px] truncate">{stock.nameCn}</div>
-                    <div className="text-xs text-muted-foreground/80">{stock.sector}</div>
+                    <div className="text-xs text-muted-foreground/80">{stock.sector || '未分类'}</div>
                   </Link>
                 </TableCell>
                 <TableCell className="text-right font-semibold tabular-nums">
@@ -133,10 +133,10 @@ export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps
                     {formatMarketCap(stock.marketCap)}
                   </Link>
                 </TableCell>
-                <TableCell className="text-right">
-                  <Link to={`/stock/${stock.code}`} className="inline-flex items-center gap-2 justify-end font-medium text-primary">
+                <TableCell className="text-right align-middle">
+                  <Link to={`/stock/${stock.code}`} className="inline-flex flex-col items-end justify-center gap-0.5 font-medium text-primary">
                     <span>{selectedPairEvent ? formatGoldenCrossDate(selectedPairEvent) : '-'}</span>
-                    {hasBuySignal ? <Badge className="bg-green-600 hover:bg-green-600">买入信号</Badge> : null}
+                    {hasBuySignal ? <Badge className="bg-green-600 hover:bg-green-600 text-[10px] px-1.5 py-0">买入</Badge> : null}
                   </Link>
                 </TableCell>
               </TableRow>

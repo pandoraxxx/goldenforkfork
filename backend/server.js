@@ -567,61 +567,54 @@ const server = http.createServer(async (req, res) => {
       const tab = searchParams.get('tab') || 'all';
       const pair = searchParams.get('pair') || db.preferences.goldenCrossPair || '5-20';
       const start = (page - 1) * pageSize;
-      const needGoldenCrossSort = tab === 'all' && sortBy === 'lastGoldenCross';
+      const needGoldenCrossSort = sortBy === 'lastGoldenCross';
       const realtime = applySearchSectorFilters(await getRealtimeUniverseStocks(), searchParams);
 
-      let ranked = realtime;
-      if (tab === 'popular') {
-        const byCode = new Map(realtime.map((s) => [s.code, s]));
-        ranked = popularStocks.map((code) => byCode.get(code)).filter(Boolean);
-      } else if (tab === 'gainers') {
-        ranked = [...realtime]
-          .filter((s) => s.changePercent > 0)
-          .sort((a, b) => b.changePercent - a.changePercent);
-      } else if (tab === 'losers') {
-        ranked = [...realtime]
-          .filter((s) => s.changePercent < 0)
-          .sort((a, b) => a.changePercent - b.changePercent);
-      } else {
-        ranked = realtime.map((s) => withGoldenCrossFromCache(s));
-        ranked = [...ranked].sort((a, b) => {
+      const applySortBy = (list, defaultSort) => {
+        const enriched = list.map((s) => withGoldenCrossFromCache(s));
+        return [...enriched].sort((a, b) => {
           if (sortBy === 'change') return b.changePercent - a.changePercent;
           if (sortBy === 'volume') return b.volume - a.volume;
           if (sortBy === 'marketCap') return b.marketCap - a.marketCap;
           if (sortBy === 'code') return a.code.localeCompare(b.code);
           if (sortBy === 'lastGoldenCross') {
-            const aDate = goldenCrossDateMillisByPair(a, pair);
-            const bDate = goldenCrossDateMillisByPair(b, pair);
-            return bDate - aDate;
+            return goldenCrossDateMillisByPair(b, pair) - goldenCrossDateMillisByPair(a, pair);
           }
-          return b.volume - a.volume;
+          return defaultSort(a, b);
         });
+      };
+
+      let ranked = realtime;
+      if (tab === 'popular') {
+        const byCode = new Map(realtime.map((s) => [s.code, s]));
+        const filtered = popularStocks.map((code) => byCode.get(code)).filter(Boolean);
+        ranked = applySortBy(filtered, (a, b) => {
+          const ai = popularStocks.indexOf(a.code);
+          const bi = popularStocks.indexOf(b.code);
+          return ai - bi;
+        });
+      } else if (tab === 'gainers') {
+        const filtered = realtime.filter((s) => s.changePercent > 0);
+        ranked = applySortBy(filtered, (a, b) => b.changePercent - a.changePercent);
+      } else if (tab === 'losers') {
+        const filtered = realtime.filter((s) => s.changePercent < 0);
+        ranked = applySortBy(filtered, (a, b) => a.changePercent - b.changePercent);
+      } else {
+        ranked = applySortBy(realtime, (a, b) => b.volume - a.volume);
       }
 
       const items = ranked.slice(start, start + pageSize);
-      let enrichedItems;
       const itemCodes = items.map((item) => item.code);
       const needPageWarmup = itemCodes.some((code) => !getCachedGoldenCrossByPair(code));
-      if (tab !== 'all') {
-        // Keep tab switching responsive: return cache-first and warm the current page in background.
-        enrichedItems = items.map((item) => withGoldenCrossFromCache(item));
-        if (needPageWarmup) {
-          warmupGoldenCrossCache(itemCodes, 900, 4).catch(() => {});
-        }
-      } else {
-        // Fast path: return immediately with cached values and warm up in background.
-        enrichedItems = items.map((item) => withGoldenCrossFromCache(item));
-        if (needPageWarmup) {
-          warmupGoldenCrossCache(itemCodes, 900, 4).catch(() => {});
-        }
-        if (needGoldenCrossSort) {
-          // Sorting by golden cross can be expensive on cold cache; warm a broader set asynchronously.
-          warmupGoldenCrossCache(realtime.map((item) => item.code), 1600, 6).catch(() => {});
-        }
+      if (needPageWarmup) {
+        warmupGoldenCrossCache(itemCodes, 900, 4).catch(() => {});
+      }
+      if (needGoldenCrossSort) {
+        warmupGoldenCrossCache(realtime.map((item) => item.code), 1600, 6).catch(() => {});
       }
 
       const payload = {
-        items: enrichedItems,
+        items,
         total: ranked.length,
         page,
         pageSize,
