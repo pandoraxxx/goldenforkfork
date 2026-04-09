@@ -31,6 +31,7 @@ export interface Stock {
   sector: string;
   lastGoldenCrossByPair: Record<string, GoldenCrossEvent | null>;
   lastGoldenCross: GoldenCrossEvent | null;
+  goldenCrossHydrated?: boolean;
 }
 
 export interface StockIndicator {
@@ -87,6 +88,8 @@ interface StocksParams {
   pair?: string;
   page?: number;
   pageSize?: number;
+  signal?: AbortSignal;
+  bypassCache?: boolean;
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:4000';
@@ -129,8 +132,11 @@ export async function getStocks(params: StocksParams) {
   if (params.pair) search.set('pair', params.pair);
   if (params.page) search.set('page', String(params.page));
   if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.bypassCache) search.set('_fresh', '1');
 
-  return request<{ items: Stock[]; total: number; page: number; pageSize: number }>(`/api/stocks?${search.toString()}`);
+  return request<{ items: Stock[]; total: number; page: number; pageSize: number }>(`/api/stocks?${search.toString()}`, {
+    signal: params.signal,
+  });
 }
 
 export async function getStock(code: string) {

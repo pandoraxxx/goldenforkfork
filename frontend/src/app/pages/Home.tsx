@@ -35,7 +35,11 @@ export function Home() {
   const [isGoldenCrossHydrating, setIsGoldenCrossHydrating] = useState(false);
   const loadingStartRef = useRef(0);
   const loadingDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stocksRequestRef = useRef<AbortController | null>(null);
   const MIN_LOADING_VISIBLE_MS = 350;
+  const PAIR_SWITCH_DEBOUNCE_MS = 180;
+  const isAbortError = (error: unknown) => error instanceof Error && error.name === 'AbortError';
+  const isPairSwitchLocked = isGoldenCrossHydrating || isGoldenCrossLoading || stocks.length === 0;
   const goldenCrossDateMillis = (stock: Stock, pairKey: GoldenCrossPairKey) => {
     const event = stock.lastGoldenCrossByPair?.[pairKey];
     if (!event?.date) return 0;
@@ -44,7 +48,6 @@ export function Home() {
   };
 
   useEffect(() => {
-    if (sortBy === 'lastGoldenCross') return;
     let alive = true;
 
     async function loadMeta() {
@@ -91,6 +94,7 @@ export function Home() {
   }, []);
 
   useEffect(() => {
+    if (sortBy === 'lastGoldenCross') return;
     let alive = true;
     const beginGoldenCrossLoading = () => {
       if (loadingDelayTimerRef.current) {
@@ -108,8 +112,7 @@ export function Home() {
         if (alive) setIsGoldenCrossLoading(false);
       }, remaining);
     };
-    const hasGoldenCrossPayload = (items: Stock[]) =>
-      items.every((item) => typeof item.lastGoldenCrossByPair === 'object' && item.lastGoldenCrossByPair !== null);
+    const hasGoldenCrossPayload = (items: Stock[]) => items.every((item) => item.goldenCrossHydrated === true);
     const hydrateGoldenCrossIfNeeded = async (initialItems: Stock[]) => {
       if (hasGoldenCrossPayload(initialItems)) return;
       setIsGoldenCrossHydrating(true);
@@ -117,7 +120,11 @@ export function Home() {
         await new Promise((resolve) => {
           setTimeout(resolve, 450);
         });
+        let controller: AbortController | null = null;
         try {
+          if (stocksRequestRef.current) stocksRequestRef.current.abort();
+          controller = new AbortController();
+          stocksRequestRef.current = controller;
           const data = await getStocks({
             search: searchQuery,
             sector: sectorFilter,
@@ -125,13 +132,18 @@ export function Home() {
             sortBy,
             page: currentPage,
             pageSize: STOCKS_PER_PAGE,
+            signal: controller.signal,
+            bypassCache: true,
           });
           if (!alive) return;
           setStocks(data.items);
           setTotalStocks(data.total);
           if (hasGoldenCrossPayload(data.items)) break;
-        } catch {
+        } catch (error) {
+          if (isAbortError(error)) return;
           // keep retrying while alive
+        } finally {
+          if (controller && stocksRequestRef.current === controller) stocksRequestRef.current = null;
         }
       }
       if (alive) setIsGoldenCrossHydrating(false);
@@ -139,7 +151,11 @@ export function Home() {
 
     async function loadList() {
       if (sortBy === 'lastGoldenCross') beginGoldenCrossLoading();
+      let controller: AbortController | null = null;
       try {
+        if (stocksRequestRef.current) stocksRequestRef.current.abort();
+        controller = new AbortController();
+        stocksRequestRef.current = controller;
         const data = await getStocks({
           search: searchQuery,
           sector: sectorFilter,
@@ -148,18 +164,20 @@ export function Home() {
           pair: sortBy === 'lastGoldenCross' ? goldenCrossPair : undefined,
           page: currentPage,
           pageSize: STOCKS_PER_PAGE,
+          signal: controller.signal,
         });
         if (!alive) return;
         setStocks(data.items);
         setTotalStocks(data.total);
         hydrateGoldenCrossIfNeeded(data.items).catch(() => {});
-      } catch {
+      } catch (error) {
+        if (isAbortError(error)) return;
         if (alive) {
-          setStocks([]);
-          setTotalStocks(0);
+          // Keep previous list on transient request failure to avoid full-page blank state.
           setIsGoldenCrossHydrating(false);
         }
       } finally {
+        if (controller && stocksRequestRef.current === controller) stocksRequestRef.current = null;
         if (alive && sortBy === 'lastGoldenCross') endGoldenCrossLoading();
       }
     }
@@ -168,6 +186,10 @@ export function Home() {
     const interval = setInterval(loadList, 30_000);
     return () => {
       alive = false;
+      if (stocksRequestRef.current) {
+        stocksRequestRef.current.abort();
+        stocksRequestRef.current = null;
+      }
       if (loadingDelayTimerRef.current) {
         clearTimeout(loadingDelayTimerRef.current);
         loadingDelayTimerRef.current = null;
@@ -175,7 +197,7 @@ export function Home() {
       setIsGoldenCrossHydrating(false);
       clearInterval(interval);
     };
-  }, [searchQuery, sectorFilter, sortBy, currentPage, activeTab, goldenCrossPair]);
+  }, [searchQuery, sectorFilter, sortBy, currentPage, activeTab]);
 
   useEffect(() => {
     if (sortBy !== 'lastGoldenCross') return;
@@ -198,7 +220,11 @@ export function Home() {
     };
     const loadForPair = async () => {
       beginGoldenCrossLoading();
+      let controller: AbortController | null = null;
       try {
+        if (stocksRequestRef.current) stocksRequestRef.current.abort();
+        controller = new AbortController();
+        stocksRequestRef.current = controller;
         const data = await getStocks({
           search: searchQuery,
           sector: sectorFilter,
@@ -207,33 +233,44 @@ export function Home() {
           pair: goldenCrossPair,
           page: currentPage,
           pageSize: STOCKS_PER_PAGE,
+          signal: controller.signal,
         });
         if (!alive) return;
         setStocks(data.items);
         setTotalStocks(data.total);
-      } catch {
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
         // keep current list on transient error
       } finally {
+        if (controller && stocksRequestRef.current === controller) stocksRequestRef.current = null;
         if (alive) endGoldenCrossLoading();
       }
     };
 
-    loadForPair();
-    const catchUp = setTimeout(loadForPair, 1200);
+    const debouncedFirstLoad = setTimeout(loadForPair, PAIR_SWITCH_DEBOUNCE_MS);
     const interval = setInterval(loadForPair, 30_000);
     return () => {
       alive = false;
+      if (stocksRequestRef.current) {
+        stocksRequestRef.current.abort();
+        stocksRequestRef.current = null;
+      }
       if (loadingDelayTimerRef.current) {
         clearTimeout(loadingDelayTimerRef.current);
         loadingDelayTimerRef.current = null;
       }
-      clearTimeout(catchUp);
+      clearTimeout(debouncedFirstLoad);
       clearInterval(interval);
     };
   }, [goldenCrossPair, sortBy, searchQuery, sectorFilter, activeTab, currentPage]);
 
   const handleGoldenCrossPairChange = async (key: string) => {
     const nextKey = key as GoldenCrossPairKey;
+    if (isPairSwitchLocked) {
+      return;
+    }
     setGoldenCrossPairState(nextKey);
     if (sortBy === 'lastGoldenCross') {
       setStocks((prev) => {
@@ -247,6 +284,10 @@ export function Home() {
     } catch {
       // ignore
     }
+  };
+
+  const handleSortByChange = (value: 'code' | 'change' | 'volume' | 'marketCap' | 'lastGoldenCross') => {
+    setSortBy(value);
   };
 
   const totalPages = Math.ceil(totalStocks / STOCKS_PER_PAGE);
@@ -291,7 +332,7 @@ export function Home() {
 
           <Select
             value={sortBy}
-            onValueChange={(value: 'code' | 'change' | 'volume' | 'marketCap' | 'lastGoldenCross') => setSortBy(value)}
+            onValueChange={handleSortByChange}
           >
             <SelectTrigger className="w-full md:w-[180px]" data-testid="sort-select-trigger">
               <SelectValue placeholder="排序方式" />
@@ -305,7 +346,7 @@ export function Home() {
             </SelectContent>
           </Select>
 
-          <Select value={goldenCrossPair} onValueChange={handleGoldenCrossPairChange}>
+          <Select value={goldenCrossPair} onValueChange={handleGoldenCrossPairChange} disabled={isPairSwitchLocked}>
             <SelectTrigger className="w-full md:w-[140px]" data-testid="pair-select-trigger">
               <SelectValue placeholder="金叉均线" />
             </SelectTrigger>

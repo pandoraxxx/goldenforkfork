@@ -56,9 +56,13 @@ let marketStatsCache = { at: 0, stats: null };
 let realtimeStocksCache = { at: 0, items: null };
 let realtimeStocksLoading = null;
 const goldenCrossCache = new Map();
+const goldenCrossWarmupInFlight = new Map();
+const stocksQueryCache = new Map();
 const REALTIME_STOCKS_TTL_MS = 60_000;
 const MARKET_STATS_TTL_MS = 60_000;
 const GOLDEN_CROSS_TTL_MS = 5 * 60_000;
+const STOCKS_QUERY_TTL_MS = 3_000;
+const STOCKS_QUERY_CACHE_MAX = 200;
 
 async function ensureTencentUniverseSet() {
   if (tencentUniverseSet) return tencentUniverseSet;
@@ -136,6 +140,7 @@ function loadRealtimeUniverseStocks() {
         sector,
         lastGoldenCrossByPair: { '5-20': null, '20-50': null, '20-60': null },
         lastGoldenCross: null,
+        goldenCrossHydrated: false,
       };
     });
 
@@ -283,9 +288,17 @@ function getCachedGoldenCrossByPair(code) {
 }
 
 async function warmupGoldenCrossCache(codes, budgetMs = 3500, concurrency = 10) {
+  const normalizedCodes = [...new Set(codes)].sort();
+  if (normalizedCodes.length === 0) return;
+  const taskKey = `${budgetMs}:${concurrency}:${normalizedCodes.join(',')}`;
+  if (goldenCrossWarmupInFlight.has(taskKey)) {
+    return goldenCrossWarmupInFlight.get(taskKey);
+  }
+
+  const task = (async () => {
   const start = Date.now();
   const queue = [];
-  for (const code of codes) {
+  for (const code of normalizedCodes) {
     if (!getCachedGoldenCrossByPair(code)) {
       queue.push(code);
     }
@@ -305,6 +318,51 @@ async function warmupGoldenCrossCache(codes, budgetMs = 3500, concurrency = 10) 
     }
   });
   await Promise.all(workers);
+  })().finally(() => {
+    goldenCrossWarmupInFlight.delete(taskKey);
+  });
+
+  goldenCrossWarmupInFlight.set(taskKey, task);
+  return task;
+}
+
+function buildStocksQueryCacheKey(searchParams, prefsPairKey) {
+  const normalized = {
+    search: searchParams.get('search') || '',
+    sector: searchParams.get('sector') || 'all',
+    tab: searchParams.get('tab') || 'all',
+    sortBy: searchParams.get('sortBy') || 'volume',
+    pair: searchParams.get('pair') || prefsPairKey || '5-20',
+    page: String(Math.max(1, Number(searchParams.get('page') || 1))),
+    pageSize: String(Math.min(100, Math.max(1, Number(searchParams.get('pageSize') || 20)))),
+  };
+  return JSON.stringify(normalized);
+}
+
+function getStocksQueryCache(key) {
+  const cached = stocksQueryCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.at >= STOCKS_QUERY_TTL_MS) {
+    stocksQueryCache.delete(key);
+    return null;
+  }
+  return cached.payload;
+}
+
+function setStocksQueryCache(key, payload) {
+  const now = Date.now();
+  stocksQueryCache.set(key, { at: now, payload });
+  if (stocksQueryCache.size <= STOCKS_QUERY_CACHE_MAX) return;
+  for (const [cacheKey, cacheValue] of stocksQueryCache.entries()) {
+    if (now - cacheValue.at >= STOCKS_QUERY_TTL_MS) {
+      stocksQueryCache.delete(cacheKey);
+    }
+  }
+  while (stocksQueryCache.size > STOCKS_QUERY_CACHE_MAX) {
+    const first = stocksQueryCache.keys().next().value;
+    if (!first) break;
+    stocksQueryCache.delete(first);
+  }
 }
 
 function goldenCrossDateMillisByPair(stock, pairKey) {
@@ -322,6 +380,7 @@ function withGoldenCrossFromCache(item) {
     ...item,
     lastGoldenCrossByPair: byPair,
     lastGoldenCross: byPair['5-20'] || null,
+    goldenCrossHydrated: true,
   };
 }
 
@@ -494,6 +553,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/api/stocks') {
+      const bypassQueryCache = searchParams.get('_fresh') === '1';
+      const queryCacheKey = buildStocksQueryCacheKey(searchParams, db.preferences.goldenCrossPair);
+      const cachedPayload = bypassQueryCache ? null : getStocksQueryCache(queryCacheKey);
+      if (cachedPayload) {
+        sendJson(res, 200, cachedPayload);
+        return;
+      }
+
       const page = Math.max(1, Number(searchParams.get('page') || 1));
       const pageSize = Math.min(100, Math.max(1, Number(searchParams.get('pageSize') || 20)));
       const sortBy = searchParams.get('sortBy') || 'volume';
@@ -533,26 +600,34 @@ const server = http.createServer(async (req, res) => {
 
       const items = ranked.slice(start, start + pageSize);
       let enrichedItems;
+      const itemCodes = items.map((item) => item.code);
+      const needPageWarmup = itemCodes.some((code) => !getCachedGoldenCrossByPair(code));
       if (tab !== 'all') {
         // Keep tab switching responsive: return cache-first and warm the current page in background.
         enrichedItems = items.map((item) => withGoldenCrossFromCache(item));
-        warmupGoldenCrossCache(items.map((item) => item.code), 1200, 6).catch(() => {});
+        if (needPageWarmup) {
+          warmupGoldenCrossCache(itemCodes, 900, 4).catch(() => {});
+        }
       } else {
         // Fast path: return immediately with cached values and warm up in background.
         enrichedItems = items.map((item) => withGoldenCrossFromCache(item));
-        warmupGoldenCrossCache(items.map((item) => item.code), 1500, 6).catch(() => {});
+        if (needPageWarmup) {
+          warmupGoldenCrossCache(itemCodes, 900, 4).catch(() => {});
+        }
         if (needGoldenCrossSort) {
           // Sorting by golden cross can be expensive on cold cache; warm a broader set asynchronously.
-          warmupGoldenCrossCache(realtime.map((item) => item.code), 2200, 8).catch(() => {});
+          warmupGoldenCrossCache(realtime.map((item) => item.code), 1600, 6).catch(() => {});
         }
       }
 
-      sendJson(res, 200, {
+      const payload = {
         items: enrichedItems,
         total: ranked.length,
         page,
         pageSize,
-      });
+      };
+      if (!bypassQueryCache) setStocksQueryCache(queryCacheKey, payload);
+      sendJson(res, 200, payload);
       return;
     }
 
@@ -582,6 +657,7 @@ const server = http.createServer(async (req, res) => {
           sector: sectorMap[rows[0].code] || '',
           lastGoldenCrossByPair: { '5-20': null, '20-50': null, '20-60': null },
           lastGoldenCross: null,
+          goldenCrossHydrated: false,
         };
         const [enriched] = await enrichStocksWithGoldenCross([base]);
         sendJson(res, 200, enriched);

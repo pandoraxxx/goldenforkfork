@@ -7,7 +7,7 @@
     "build": "vite build --config frontend/vite.config.ts",
     "dev": "vite --config frontend/vite.config.ts",
     "api": "node backend/server.js",
-    "api:watch": "nodemon --watch backend --ext js,json --exec \"node backend/server.js\"",
+    "api:watch": "nodemon --watch backend --ext js --exec \"node backend/server.js\"",
     "sectors:import": "node backend/data/import-hsics-sectors.mjs",
     "test:api": "vitest run --config tests/api/vitest.config.ts",
     "test:e2e": "playwright test",
