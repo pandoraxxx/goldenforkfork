@@ -44,6 +44,7 @@ export function Home() {
   };
 
   useEffect(() => {
+    if (sortBy === 'lastGoldenCross') return;
     let alive = true;
 
     async function loadMeta() {
@@ -107,10 +108,10 @@ export function Home() {
         if (alive) setIsGoldenCrossLoading(false);
       }, remaining);
     };
-    const needsGoldenCrossHydration = (items: Stock[]) =>
-      items.some((item) => !item.lastGoldenCrossByPair?.[goldenCrossPair]);
+    const hasGoldenCrossPayload = (items: Stock[]) =>
+      items.every((item) => typeof item.lastGoldenCrossByPair === 'object' && item.lastGoldenCrossByPair !== null);
     const hydrateGoldenCrossIfNeeded = async (initialItems: Stock[]) => {
-      if (sortBy === 'lastGoldenCross' || !needsGoldenCrossHydration(initialItems)) return;
+      if (hasGoldenCrossPayload(initialItems)) return;
       setIsGoldenCrossHydrating(true);
       for (let attempt = 0; attempt < 8 && alive; attempt += 1) {
         await new Promise((resolve) => {
@@ -128,7 +129,7 @@ export function Home() {
           if (!alive) return;
           setStocks(data.items);
           setTotalStocks(data.total);
-          if (!needsGoldenCrossHydration(data.items)) break;
+          if (hasGoldenCrossPayload(data.items)) break;
         } catch {
           // keep retrying while alive
         }
@@ -174,7 +175,7 @@ export function Home() {
       setIsGoldenCrossHydrating(false);
       clearInterval(interval);
     };
-  }, [searchQuery, sectorFilter, sortBy, currentPage, activeTab]);
+  }, [searchQuery, sectorFilter, sortBy, currentPage, activeTab, goldenCrossPair]);
 
   useEffect(() => {
     if (sortBy !== 'lastGoldenCross') return;
@@ -219,6 +220,7 @@ export function Home() {
 
     loadForPair();
     const catchUp = setTimeout(loadForPair, 1200);
+    const interval = setInterval(loadForPair, 30_000);
     return () => {
       alive = false;
       if (loadingDelayTimerRef.current) {
@@ -226,6 +228,7 @@ export function Home() {
         loadingDelayTimerRef.current = null;
       }
       clearTimeout(catchUp);
+      clearInterval(interval);
     };
   }, [goldenCrossPair, sortBy, searchQuery, sectorFilter, activeTab, currentPage]);
 
