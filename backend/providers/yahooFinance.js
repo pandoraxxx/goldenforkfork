@@ -47,7 +47,8 @@ async function fetchTencentKline(code, range = '3mo') {
   const symbol = `hk${String(parseInt(code, 10) || 0).padStart(5, '0')}`;
   const url = `${TENCENT_KLINE_URL}${encodeURIComponent(`${symbol},day,,,${count},qfq`)}`;
   const json = await fetchJson(url);
-  const rows = json?.data?.[symbol]?.day;
+  const bucket = json?.data?.[symbol];
+  const rows = bucket?.day ?? bucket?.qfqday;
   if (!Array.isArray(rows)) return [];
 
   const out = [];
