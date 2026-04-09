@@ -4,7 +4,7 @@ import path from 'node:path';
 import { URL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { initDb, saveDb } from './db.js';
-import { detectGoldenCrossEvents, MA_PAIRS, popularStocks } from './market.js';
+import { detectGoldenCrossEvents, MA_PAIRS, popularStocks, parsePairKey, isValidPairKey, MA_PERIOD_MIN, MA_PERIOD_MAX } from './market.js';
 import {
   getLiveQuoteByCode,
   getLiveQuotes,
@@ -263,16 +263,29 @@ function conditionPassed(current, condition, target) {
   return Math.abs(current - target) < 0.01;
 }
 
-async function getGoldenCrossByPair(code) {
+async function getGoldenCrossByPair(code, extraPairs = []) {
   const cached = goldenCrossCache.get(code);
   const now = Date.now();
+
+  const allPairs = [...MA_PAIRS];
+  for (const ep of extraPairs) {
+    if (!allPairs.some((p) => p.key === ep.key)) allPairs.push(ep);
+  }
+
   if (cached && now - cached.at < GOLDEN_CROSS_TTL_MS) {
+    const missing = allPairs.filter((p) => !(p.key in cached.value));
+    if (missing.length === 0) return cached.value;
+    const history = await getLivePriceHistory(code, '6mo', '1d');
+    for (const pair of missing) {
+      const events = detectGoldenCrossEvents(history, pair.short, pair.long, pair.key);
+      cached.value[pair.key] = events.length > 0 ? events[events.length - 1] : null;
+    }
     return cached.value;
   }
 
   const history = await getLivePriceHistory(code, '6mo', '1d');
   const value = {};
-  for (const pair of MA_PAIRS) {
+  for (const pair of allPairs) {
     const events = detectGoldenCrossEvents(history, pair.short, pair.long, pair.key);
     value[pair.key] = events.length > 0 ? events[events.length - 1] : null;
   }
@@ -287,10 +300,11 @@ function getCachedGoldenCrossByPair(code) {
   return cached.value;
 }
 
-async function warmupGoldenCrossCache(codes, budgetMs = 3500, concurrency = 10) {
+async function warmupGoldenCrossCache(codes, budgetMs = 3500, concurrency = 10, extraPairs = []) {
   const normalizedCodes = [...new Set(codes)].sort();
   if (normalizedCodes.length === 0) return;
-  const taskKey = `${budgetMs}:${concurrency}:${normalizedCodes.join(',')}`;
+  const epKey = extraPairs.map((p) => p.key).join('+');
+  const taskKey = `${budgetMs}:${concurrency}:${epKey}:${normalizedCodes.join(',')}`;
   if (goldenCrossWarmupInFlight.has(taskKey)) {
     return goldenCrossWarmupInFlight.get(taskKey);
   }
@@ -299,7 +313,8 @@ async function warmupGoldenCrossCache(codes, budgetMs = 3500, concurrency = 10) 
   const start = Date.now();
   const queue = [];
   for (const code of normalizedCodes) {
-    if (!getCachedGoldenCrossByPair(code)) {
+    const cached = getCachedGoldenCrossByPair(code);
+    if (!cached || extraPairs.some((p) => !(p.key in cached))) {
       queue.push(code);
     }
   }
@@ -311,7 +326,7 @@ async function warmupGoldenCrossCache(codes, budgetMs = 3500, concurrency = 10) 
       const code = queue[index];
       index += 1;
       try {
-        await getGoldenCrossByPair(code);
+        await getGoldenCrossByPair(code, extraPairs);
       } catch {
         // ignore single symbol failure
       }
@@ -494,7 +509,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/api/meta') {
-      sendJson(res, 200, { sectors: sectorList, maPairs: MA_PAIRS, popularStocks });
+      sendJson(res, 200, {
+        sectors: sectorList,
+        maPairs: MA_PAIRS,
+        popularStocks,
+        customPairLimits: { min: MA_PERIOD_MIN, max: MA_PERIOD_MAX },
+      });
       return;
     }
 
@@ -545,7 +565,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && /^\/api\/live\/stocks\/\d{5}\/golden-cross$/.test(pathname)) {
       const code = pathname.split('/')[4];
       const pairKey = searchParams.get('pair') || db.preferences.goldenCrossPair || '5-20';
-      const pair = MA_PAIRS.find((p) => p.key === pairKey) || MA_PAIRS[0];
+      const pair = parsePairKey(pairKey) || MA_PAIRS[0];
       const history = await getLivePriceHistory(code, '6mo', '1d');
       const events = detectGoldenCrossEvents(history, pair.short, pair.long, pair.key);
       sendJson(res, 200, { pair, events });
@@ -565,7 +585,9 @@ const server = http.createServer(async (req, res) => {
       const pageSize = Math.min(100, Math.max(1, Number(searchParams.get('pageSize') || 20)));
       const sortBy = searchParams.get('sortBy') || 'volume';
       const tab = searchParams.get('tab') || 'all';
-      const pair = searchParams.get('pair') || db.preferences.goldenCrossPair || '5-20';
+      const pairKey = searchParams.get('pair') || db.preferences.goldenCrossPair || '5-20';
+      const customPair = parsePairKey(pairKey);
+      const extraPairs = customPair && !MA_PAIRS.some((p) => p.key === customPair.key) ? [customPair] : [];
       const start = (page - 1) * pageSize;
       const needGoldenCrossSort = sortBy === 'lastGoldenCross';
       const realtime = applySearchSectorFilters(await getRealtimeUniverseStocks(), searchParams);
@@ -578,7 +600,7 @@ const server = http.createServer(async (req, res) => {
           if (sortBy === 'marketCap') return b.marketCap - a.marketCap;
           if (sortBy === 'code') return a.code.localeCompare(b.code);
           if (sortBy === 'lastGoldenCross') {
-            return goldenCrossDateMillisByPair(b, pair) - goldenCrossDateMillisByPair(a, pair);
+            return goldenCrossDateMillisByPair(b, pairKey) - goldenCrossDateMillisByPair(a, pairKey);
           }
           return defaultSort(a, b);
         });
@@ -605,12 +627,15 @@ const server = http.createServer(async (req, res) => {
 
       const items = ranked.slice(start, start + pageSize);
       const itemCodes = items.map((item) => item.code);
-      const needPageWarmup = itemCodes.some((code) => !getCachedGoldenCrossByPair(code));
+      const needPageWarmup = itemCodes.some((code) => {
+        const cached = getCachedGoldenCrossByPair(code);
+        return !cached || extraPairs.some((p) => !(p.key in cached));
+      });
       if (needPageWarmup) {
-        warmupGoldenCrossCache(itemCodes, 900, 4).catch(() => {});
+        warmupGoldenCrossCache(itemCodes, 900, 4, extraPairs).catch(() => {});
       }
       if (needGoldenCrossSort) {
-        warmupGoldenCrossCache(realtime.map((item) => item.code), 1600, 6).catch(() => {});
+        warmupGoldenCrossCache(realtime.map((item) => item.code), 1600, 6, extraPairs).catch(() => {});
       }
 
       const payload = {
@@ -694,7 +719,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const pairKey = searchParams.get('pair') || db.preferences.goldenCrossPair || '5-20';
-      const pair = MA_PAIRS.find((p) => p.key === pairKey) || MA_PAIRS[0];
+      const pair = parsePairKey(pairKey) || MA_PAIRS[0];
       const history = await getLivePriceHistory(code, '6mo', '1d');
       const events = detectGoldenCrossEvents(history, pair.short, pair.long, pair.key);
       sendJson(res, 200, { pair, events });
@@ -867,8 +892,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'PUT' && pathname === '/api/preferences/golden-cross-pair') {
       const body = await parseBody(req);
       const pairKey = typeof body.pairKey === 'string' ? body.pairKey : '';
-      if (!MA_PAIRS.some((p) => p.key === pairKey)) {
-        sendJson(res, 400, { error: 'pairKey 无效' });
+      if (!isValidPairKey(pairKey)) {
+        sendJson(res, 400, { error: 'pairKey 无效 (格式: short-long, 例: 10-30)' });
         return;
       }
       db.preferences.goldenCrossPair = pairKey;

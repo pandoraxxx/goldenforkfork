@@ -1,4 +1,4 @@
-import { formatGoldenCrossDate, isGoldenCrossBuySignal, MA_PAIRS, type GoldenCrossPairKey } from '../utils/market';
+import { formatGoldenCrossDate, isGoldenCrossBuySignal, getPairLabel, type GoldenCrossPairKey } from '../utils/market';
 import { TrendingUp, TrendingDown, Star } from 'lucide-react';
 import { Link } from 'react-router';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -14,7 +14,7 @@ interface StockTableProps {
 }
 
 export function StockTable({ stocks, goldenCrossPair = '5-20' }: StockTableProps) {
-  const pairLabel = MA_PAIRS.find(p => p.key === goldenCrossPair)?.label ?? 'MA5/20';
+  const pairLabel = getPairLabel(goldenCrossPair);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
 
   const formatMarketCap = (value: number) => {

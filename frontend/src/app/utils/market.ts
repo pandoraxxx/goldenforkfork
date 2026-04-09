@@ -4,7 +4,38 @@ export const MA_PAIRS = [
   { short: 20, long: 60, key: '20-60', label: 'MA20/60' },
 ] as const;
 
-export type GoldenCrossPairKey = typeof MA_PAIRS[number]['key'];
+export const MA_PERIOD_MIN = 2;
+export const MA_PERIOD_MAX = 250;
+
+export type GoldenCrossPairKey = string;
+
+export interface MAPair {
+  short: number;
+  long: number;
+  key: string;
+  label: string;
+}
+
+export function parsePairKey(pairKey: string): MAPair | null {
+  const m = /^(\d+)-(\d+)$/.exec(pairKey);
+  if (!m) return null;
+  const short = Number(m[1]);
+  const long = Number(m[2]);
+  if (short >= long) return null;
+  if (short < MA_PERIOD_MIN || long > MA_PERIOD_MAX) return null;
+  return { short, long, key: `${short}-${long}`, label: `MA${short}/${long}` };
+}
+
+export function isPresetPair(key: string): boolean {
+  return MA_PAIRS.some((p) => p.key === key);
+}
+
+export function getPairLabel(key: string): string {
+  const preset = MA_PAIRS.find((p) => p.key === key);
+  if (preset) return preset.label;
+  const parsed = parsePairKey(key);
+  return parsed ? parsed.label : key;
+}
 
 export interface GoldenCrossEvent {
   date: string;
@@ -15,7 +46,7 @@ export interface GoldenCrossEvent {
   type: 'golden';
   shortPeriod: number;
   longPeriod: number;
-  pairKey: GoldenCrossPairKey;
+  pairKey: string;
 }
 
 export function formatGoldenCrossDate(event: GoldenCrossEvent): string {

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router';
-import { isGoldenCrossBuySignal, MA_PAIRS } from '../utils/market';
+import { isGoldenCrossBuySignal, MA_PAIRS, getPairLabel, parsePairKey, isPresetPair, type MAPair } from '../utils/market';
 import {
   addFavorite,
   getFavorites,
+  getGoldenCrossPairPreference,
   getStock,
   getStockGoldenCross,
   getStockIndicators,
@@ -43,14 +44,20 @@ export function StockDetail() {
 
     async function load() {
       try {
-        const baseStock = await getStock(code);
+        const [baseStock, pref] = await Promise.all([getStock(code), getGoldenCrossPairPreference()]);
         if (!alive) return;
+
+        const allPairs: MAPair[] = [...MA_PAIRS];
+        const userPair = parsePairKey(pref.pairKey);
+        if (userPair && !isPresetPair(userPair.key)) {
+          allPairs.push(userPair);
+        }
 
         const [indicatorsResult, historyResult, favoritesResult, ...goldenListResults] = await Promise.allSettled([
           getStockIndicators(code),
           getStockPriceHistory(code, { days: 90 }),
           getFavorites(),
-          ...MA_PAIRS.map((pair) => getStockGoldenCross(code, pair.key)),
+          ...allPairs.map((pair) => getStockGoldenCross(code, pair.key)),
         ]);
 
         if (!alive) return;
@@ -76,7 +83,7 @@ export function StockDetail() {
         const favorites = favoritesResult.status === 'fulfilled' ? favoritesResult.value : [];
 
         const byPair: Record<string, GoldenCrossEvent[]> = {};
-        MA_PAIRS.forEach((pair, idx) => {
+        allPairs.forEach((pair, idx) => {
           const r = goldenListResults[idx];
           byPair[pair.key] = r && r.status === 'fulfilled' ? r.value.events || [] : [];
         });
@@ -149,7 +156,16 @@ export function StockDetail() {
   }
 
   const isPositive = stock.change >= 0;
-  const latestPair = MA_PAIRS[0];
+  const displayPairs: MAPair[] = useMemo(() => {
+    const base: MAPair[] = [...MA_PAIRS];
+    const customKeys = Object.keys(goldenCrossEventsByPair).filter((k) => !isPresetPair(k));
+    for (const k of customKeys) {
+      const p = parsePairKey(k);
+      if (p) base.push(p);
+    }
+    return base;
+  }, [goldenCrossEventsByPair]);
+  const latestPair = displayPairs[0];
   const latestEventForDefaultPair = stock.lastGoldenCrossByPair[latestPair.key];
   const hasBuySignal = isGoldenCrossBuySignal(latestEventForDefaultPair);
 
@@ -360,13 +376,13 @@ export function StockDetail() {
 
             <Card className="p-6 md:col-span-2" data-testid="golden-cross-card">
               <h3 className="text-lg font-semibold mb-4">黄金交叉记录</h3>
-              <Tabs defaultValue={MA_PAIRS[0].key} className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  {MA_PAIRS.map((p) => (
+              <Tabs defaultValue={displayPairs[0].key} className="w-full">
+                <TabsList className={`grid w-full`} style={{ gridTemplateColumns: `repeat(${displayPairs.length}, minmax(0, 1fr))` }}>
+                  {displayPairs.map((p) => (
                     <TabsTrigger key={p.key} value={p.key}>{p.label}</TabsTrigger>
                   ))}
                 </TabsList>
-                {MA_PAIRS.map((pair) => {
+                {displayPairs.map((pair) => {
                   const events = goldenCrossEventsByPair[pair.key] ?? [];
                   return (
                     <TabsContent key={pair.key} value={pair.key} className="mt-4">

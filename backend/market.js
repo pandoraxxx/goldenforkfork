@@ -4,6 +4,23 @@ export const MA_PAIRS = [
   { short: 20, long: 60, key: '20-60', label: 'MA20/60' },
 ];
 
+export const MA_PERIOD_MIN = 2;
+export const MA_PERIOD_MAX = 250;
+
+export function parsePairKey(pairKey) {
+  const m = /^(\d+)-(\d+)$/.exec(String(pairKey || ''));
+  if (!m) return null;
+  const short = Number(m[1]);
+  const long = Number(m[2]);
+  if (short >= long) return null;
+  if (short < MA_PERIOD_MIN || long > MA_PERIOD_MAX) return null;
+  return { short, long, key: `${short}-${long}`, label: `MA${short}/${long}` };
+}
+
+export function isValidPairKey(pairKey) {
+  return parsePairKey(pairKey) !== null;
+}
+
 export const popularStocks = ['00700', '00001', '00005', '00941', '00388', '01299', '02318', '00175', '00883', '03690'];
 
 export function detectGoldenCrossEvents(priceHistory, shortPeriod = 5, longPeriod = 20, pairKey = '5-20') {

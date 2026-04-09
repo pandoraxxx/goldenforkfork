@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { MA_PAIRS, type GoldenCrossPairKey } from '../utils/market';
+import { MA_PAIRS, MA_PERIOD_MIN, MA_PERIOD_MAX, parsePairKey, getPairLabel, isPresetPair, type GoldenCrossPairKey } from '../utils/market';
 import {
   getGoldenCrossPairPreference,
   getMarketStats,
@@ -35,6 +35,10 @@ export function Home() {
   const [isGoldenCrossLoading, setIsGoldenCrossLoading] = useState(false);
   const [isGoldenCrossHydrating, setIsGoldenCrossHydrating] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [showCustomPairInput, setShowCustomPairInput] = useState(false);
+  const [customShort, setCustomShort] = useState('');
+  const [customLong, setCustomLong] = useState('');
+  const [customPairError, setCustomPairError] = useState('');
   const loadingStartRef = useRef(0);
   const loadingDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stocksRequestRef = useRef<AbortController | null>(null);
@@ -83,7 +87,7 @@ export function Home() {
         ]);
         if (!alive) return;
         setSectors(meta.sectors || []);
-        if (MA_PAIRS.some((pair) => pair.key === pref.pairKey)) {
+        if (parsePairKey(pref.pairKey)) {
           setGoldenCrossPairState(pref.pairKey as GoldenCrossPairKey);
         }
       } catch {
@@ -305,12 +309,8 @@ export function Home() {
     };
   }, [goldenCrossPair, sortBy, searchQuery, sectorFilter, activeTab, currentPage]);
 
-  const handleGoldenCrossPairChange = async (key: string) => {
-    const nextKey = key as GoldenCrossPairKey;
-    if (isPairSwitchLocked) {
-      return;
-    }
-    setGoldenCrossPairState(nextKey);
+  const applyPairKey = (nextKey: string) => {
+    setGoldenCrossPairState(nextKey as GoldenCrossPairKey);
     if (sortBy === 'lastGoldenCross') {
       setStocks((prev) => {
         const next = [...prev];
@@ -318,11 +318,36 @@ export function Home() {
         return next;
       });
     }
-    try {
-      await setGoldenCrossPairPreference(key);
-    } catch {
-      // ignore
+    setGoldenCrossPairPreference(nextKey).catch(() => {});
+  };
+
+  const handleGoldenCrossPairChange = async (key: string) => {
+    if (isPairSwitchLocked) return;
+    if (key === '__custom__') {
+      setCustomShort('');
+      setCustomLong('');
+      setCustomPairError('');
+      setShowCustomPairInput(true);
+      return;
     }
+    applyPairKey(key);
+  };
+
+  const handleCustomPairSubmit = () => {
+    const s = Number(customShort);
+    const l = Number(customLong);
+    if (!Number.isInteger(s) || !Number.isInteger(l)) {
+      setCustomPairError('请输入整数');
+      return;
+    }
+    const key = `${s}-${l}`;
+    const parsed = parsePairKey(key);
+    if (!parsed) {
+      setCustomPairError(`短期需小于长期，范围 ${MA_PERIOD_MIN}-${MA_PERIOD_MAX}`);
+      return;
+    }
+    setShowCustomPairInput(false);
+    applyPairKey(parsed.key);
   };
 
   const handleSortByChange = (value: 'code' | 'change' | 'volume' | 'marketCap' | 'lastGoldenCross') => {
@@ -385,16 +410,49 @@ export function Home() {
             </SelectContent>
           </Select>
 
-          <Select value={goldenCrossPair} onValueChange={handleGoldenCrossPairChange} disabled={isPairSwitchLocked}>
-            <SelectTrigger className="w-full md:w-[140px]" data-testid="pair-select-trigger">
-              <SelectValue placeholder="金叉均线" />
-            </SelectTrigger>
-            <SelectContent>
-              {MA_PAIRS.map((p) => (
-                <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select value={isPresetPair(goldenCrossPair) ? goldenCrossPair : '__custom__'} onValueChange={handleGoldenCrossPairChange} disabled={isPairSwitchLocked}>
+              <SelectTrigger className="w-full md:w-[160px]" data-testid="pair-select-trigger">
+                <SelectValue>
+                  {getPairLabel(goldenCrossPair)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {MA_PAIRS.map((p) => (
+                  <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>
+                ))}
+                <SelectItem value="__custom__">自定义...</SelectItem>
+              </SelectContent>
+            </Select>
+            {showCustomPairInput && (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="number"
+                  min={MA_PERIOD_MIN}
+                  max={MA_PERIOD_MAX}
+                  placeholder="短期"
+                  className="w-[72px] h-9 text-sm"
+                  value={customShort}
+                  onChange={(e) => { setCustomShort(e.target.value); setCustomPairError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCustomPairSubmit()}
+                />
+                <span className="text-muted-foreground text-sm">/</span>
+                <Input
+                  type="number"
+                  min={MA_PERIOD_MIN}
+                  max={MA_PERIOD_MAX}
+                  placeholder="长期"
+                  className="w-[72px] h-9 text-sm"
+                  value={customLong}
+                  onChange={(e) => { setCustomLong(e.target.value); setCustomPairError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCustomPairSubmit()}
+                />
+                <Button size="sm" variant="secondary" className="h-9 px-3" onClick={handleCustomPairSubmit}>确定</Button>
+                <Button size="sm" variant="ghost" className="h-9 px-2" onClick={() => setShowCustomPairInput(false)}>✕</Button>
+              </div>
+            )}
+            {customPairError && <span className="text-xs text-red-500">{customPairError}</span>}
+          </div>
 
           <div className="flex gap-2">
             <Button
