@@ -7,13 +7,14 @@ import {
   getStocks,
   setGoldenCrossPairPreference,
   Stock,
+  NetworkError,
 } from '../api/client';
 import { StockCard } from '../components/StockCard';
 import { StockTable } from '../components/StockTable';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Search, Grid, List, TrendingUp, TrendingDown, AlertCircle, Loader2 } from 'lucide-react';
+import { Search, Grid, List, TrendingUp, TrendingDown, AlertCircle, Loader2, WifiOff } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Card } from '../components/ui/card';
 
@@ -33,13 +34,17 @@ export function Home() {
   const [marketStats, setMarketStats] = useState({ rising: 0, falling: 0, unchanged: 0 });
   const [isGoldenCrossLoading, setIsGoldenCrossLoading] = useState(false);
   const [isGoldenCrossHydrating, setIsGoldenCrossHydrating] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const loadingStartRef = useRef(0);
   const loadingDelayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stocksRequestRef = useRef<AbortController | null>(null);
   const stockListRef = useRef<HTMLDivElement>(null);
   const MIN_LOADING_VISIBLE_MS = 350;
   const PAIR_SWITCH_DEBOUNCE_MS = 180;
+  const LOAD_RETRY_DELAY_MS = 3_000;
+  const MAX_LOAD_RETRIES = 2;
   const isAbortError = (error: unknown) => error instanceof Error && error.name === 'AbortError';
+  const isNetworkError = (error: unknown) => error instanceof NetworkError || (error instanceof TypeError && (error as TypeError).message === 'Failed to fetch');
   const isPairSwitchLocked = isGoldenCrossHydrating || isGoldenCrossLoading || stocks.length === 0;
   const lockListHeight = () => {
     if (stockListRef.current) {
@@ -55,6 +60,17 @@ export function Home() {
     const ts = new Date(event.date).getTime();
     return Number.isFinite(ts) ? ts : 0;
   };
+
+  useEffect(() => {
+    const goOnline = () => setIsOffline(false);
+    const goOffline = () => setIsOffline(true);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -125,10 +141,12 @@ export function Home() {
     const hydrateGoldenCrossIfNeeded = async (initialItems: Stock[]) => {
       if (hasGoldenCrossPayload(initialItems)) return;
       setIsGoldenCrossHydrating(true);
+      let consecutiveNetworkErrors = 0;
       for (let attempt = 0; attempt < 8 && alive; attempt += 1) {
-        await new Promise((resolve) => {
-          setTimeout(resolve, 450);
-        });
+        const delay = consecutiveNetworkErrors > 0
+          ? Math.min(1000 * 2 ** consecutiveNetworkErrors, 8000)
+          : 450;
+        await new Promise((resolve) => { setTimeout(resolve, delay); });
         let controller: AbortController | null = null;
         try {
           if (stocksRequestRef.current) stocksRequestRef.current.abort();
@@ -145,12 +163,16 @@ export function Home() {
             bypassCache: true,
           });
           if (!alive) return;
+          consecutiveNetworkErrors = 0;
           setStocks(data.items);
           setTotalStocks(data.total);
           if (hasGoldenCrossPayload(data.items)) break;
         } catch (error) {
           if (isAbortError(error)) return;
-          // keep retrying while alive
+          if (isNetworkError(error)) {
+            consecutiveNetworkErrors += 1;
+            if (consecutiveNetworkErrors >= 3) break;
+          }
         } finally {
           if (controller && stocksRequestRef.current === controller) stocksRequestRef.current = null;
         }
@@ -158,7 +180,8 @@ export function Home() {
       if (alive) setIsGoldenCrossHydrating(false);
     };
 
-    async function loadList() {
+    let loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    async function loadList(retryCount = 0) {
       if (sortBy === 'lastGoldenCross') beginGoldenCrossLoading();
       let controller: AbortController | null = null;
       try {
@@ -182,8 +205,11 @@ export function Home() {
       } catch (error) {
         if (isAbortError(error)) return;
         if (alive) {
-          // Keep previous list on transient request failure to avoid full-page blank state.
           setIsGoldenCrossHydrating(false);
+          if (retryCount < MAX_LOAD_RETRIES && isNetworkError(error)) {
+            loadRetryTimer = setTimeout(() => { if (alive) loadList(retryCount + 1); }, LOAD_RETRY_DELAY_MS);
+            return;
+          }
         }
       } finally {
         if (controller && stocksRequestRef.current === controller) stocksRequestRef.current = null;
@@ -195,6 +221,7 @@ export function Home() {
     const interval = setInterval(loadList, 30_000);
     return () => {
       alive = false;
+      if (loadRetryTimer) clearTimeout(loadRetryTimer);
       if (stocksRequestRef.current) {
         stocksRequestRef.current.abort();
         stocksRequestRef.current = null;
@@ -227,7 +254,8 @@ export function Home() {
         if (alive) setIsGoldenCrossLoading(false);
       }, remaining);
     };
-    const loadForPair = async () => {
+    let pairRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    const loadForPair = async (retryCount = 0) => {
       beginGoldenCrossLoading();
       let controller: AbortController | null = null;
       try {
@@ -248,10 +276,11 @@ export function Home() {
         setStocks(data.items);
         setTotalStocks(data.total);
       } catch (error) {
-        if (isAbortError(error)) {
+        if (isAbortError(error)) return;
+        if (alive && retryCount < MAX_LOAD_RETRIES && isNetworkError(error)) {
+          pairRetryTimer = setTimeout(() => { if (alive) loadForPair(retryCount + 1); }, LOAD_RETRY_DELAY_MS);
           return;
         }
-        // keep current list on transient error
       } finally {
         if (controller && stocksRequestRef.current === controller) stocksRequestRef.current = null;
         if (alive) endGoldenCrossLoading();
@@ -262,6 +291,7 @@ export function Home() {
     const interval = setInterval(loadForPair, 30_000);
     return () => {
       alive = false;
+      if (pairRetryTimer) clearTimeout(pairRetryTimer);
       if (stocksRequestRef.current) {
         stocksRequestRef.current.abort();
         stocksRequestRef.current = null;
@@ -471,6 +501,13 @@ export function Home() {
           </Card>
         </div>
       </div>
+
+      {isOffline && (
+        <div className="flex items-center gap-2 rounded-md border border-yellow-600/50 bg-yellow-950/30 px-4 py-2 text-sm text-yellow-500">
+          <WifiOff className="h-4 w-4 shrink-0" />
+          <span>网络连接已断开，数据可能不是最新的。恢复连接后将自动刷新。</span>
+        </div>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">

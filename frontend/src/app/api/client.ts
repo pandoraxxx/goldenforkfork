@@ -93,26 +93,82 @@ interface StocksParams {
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:4000';
+const REQUEST_TIMEOUT_MS = 15_000;
+const MAX_RETRIES = 2;
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+export class HttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = 'HttpError';
+  }
+  get retryable() {
+    return RETRYABLE_STATUSES.has(this.status);
+  }
+}
+
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NetworkError';
+  }
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+function isMutatingMethod(init?: RequestInit): boolean {
+  const method = (init?.method || 'GET').toUpperCase();
+  return method !== 'GET' && method !== 'HEAD';
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
-    ...init,
-  });
+  const maxAttempts = isMutatingMethod(init) ? 1 : MAX_RETRIES + 1;
+  let lastError: Error | undefined;
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `HTTP_${res.status}`);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      const backoff = Math.min(1000 * 2 ** (attempt - 1), 4000);
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+
+    const externalSignal = init?.signal;
+    if (externalSignal?.aborted) throw externalSignal.reason ?? new DOMException('Aborted', 'AbortError');
+
+    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    const combined = externalSignal ? AbortSignal.any([externalSignal, timeout]) : timeout;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}${path}`, {
+        headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+        ...init,
+        signal: combined,
+      });
+
+      if (res.ok) {
+        if (res.status === 204) return undefined as T;
+        return res.json() as Promise<T>;
+      }
+
+      const text = await res.text().catch(() => '');
+      const err = new HttpError(res.status, text || `HTTP_${res.status}`);
+      if (!err.retryable || attempt === maxAttempts - 1) throw err;
+      lastError = err;
+    } catch (err) {
+      if (isAbortError(err)) {
+        if (externalSignal?.aborted) throw err;
+        lastError = new NetworkError(`Request timeout after ${REQUEST_TIMEOUT_MS}ms`);
+        if (attempt === maxAttempts - 1) throw lastError;
+        continue;
+      }
+      if (err instanceof HttpError) throw err;
+      lastError = new NetworkError(err instanceof Error ? err.message : 'Network request failed');
+      if (attempt === maxAttempts - 1) throw lastError;
+    }
   }
 
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
-  return res.json() as Promise<T>;
+  throw lastError ?? new NetworkError('Request failed');
 }
 
 export async function getMeta() {
